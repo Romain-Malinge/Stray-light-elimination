@@ -117,7 +117,7 @@ def make_mask(folder_path, taille_max=2048):
     images_names = os.listdir(folder_path)
     idx = 0
     nb_im = len(images_names)
-    for image_name in images_names[:2]:
+    for image_name in images_names:
         idx += 1
         image_path = os.path.join(folder_path, image_name)
 
