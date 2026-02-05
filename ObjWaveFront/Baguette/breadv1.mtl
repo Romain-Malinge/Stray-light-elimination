@@ -1,0 +1,14 @@
+newmtl material_8a57e60a-696d-4392-a29b-50ac298f58d2
+Ka 1.000000 1.000000 1.000000
+Ks 0.000000 0.000000 0.000000
+d 1
+Ns 0.00000
+illum 1
+map_Kd breadv1_material_8a57e60a-696d-4392-a29b-50ac298f58d2.jpg
+
+newmtl NO_MATERIAL
+Ka 1.000000 0.000000 0.000000
+Ks 0.000000 0.000000 0.000000
+d 1
+Ns 0.00000
+illum 1

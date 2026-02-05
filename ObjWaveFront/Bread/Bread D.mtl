@@ -1,0 +1,14 @@
+# 
+# Wavefront material file
+# Converted by the SAP 3D Visual Enterprise Author 8.0 (8.0.401.57225)
+# SAP AG
+# http://www.sap.com/
+# 
+
+newmtl Material__159
+Ka 0 0 0
+Kd 1 1 1
+Ks 0 0 0
+illum 2
+Ns 2048
+map_Kd BreadD.jpg
