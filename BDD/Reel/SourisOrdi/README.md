@@ -6,7 +6,7 @@
 - 1/50
 
 ## Stray :
-- Panneau led à gauche retourné
+- Panneau led à gauche derrière retourné
 - int 100%
 
 ## PS :
