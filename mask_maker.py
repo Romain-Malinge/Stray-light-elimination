@@ -113,13 +113,6 @@ def rgb_resize(image, taille_max):
 
 # Fonction pour obtenir les points d'entrée de l'utilisateur
 def get_input_points(img):
-    """
-    Ouvre une fenêtre pour sélectionner des points sur l'image.
-    - Clic gauche  : point valide (label = 1)
-    - Clic droit   : point non valide (label = 0)
-    - Appuyer sur 'q' pour quitter
-    """
-
     input_points = []
     input_labels = []
 
@@ -147,14 +140,12 @@ def get_input_points(img):
         cv2.imshow("Select points", display_img)
         key = cv2.waitKey(1) & 0xFF
 
-        if key == ord('q'):
+        if key == 13:
             break
 
     cv2.destroyAllWindows()
 
     return input_points, input_labels
-
-
 
 
 # Fonction principale pour créer des masques pour toutes les images dans un dossier
@@ -210,6 +201,9 @@ def make_mask(folder_path, taille_max=2048, version = "small"):
         largest_label = 1 + np.argmax([np.sum(labels_im == i) for i in range(1, num_labels)])
         mask = (labels_im == largest_label).astype(np.uint8)
     
+    # Comblet les trou du masque
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    
     # Sauvegarder chaque image avec le masque appliqué en format PNG
     idx = 0
     for image, image_name in zip(images, images_names):
@@ -225,6 +219,10 @@ def make_mask(folder_path, taille_max=2048, version = "small"):
 
         Image.fromarray(image_rgba, mode='RGBA').save(save_path)
         print(f"[{idx}/{nb_im}] image saved to {save_path}")
+    
+    # Sauvegarder un masque binaire pour chaque image
+    mask_save_path = os.path.join(output_folder, 'mask.png')
+    Image.fromarray((mask * 255).astype(np.uint8), mode='L').save(mask_save_path)
     
     return mask
 
