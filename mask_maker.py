@@ -53,7 +53,7 @@ def show_masks(image, masks, scores, point_coords=None, box_coords=None, input_l
 
 
 # Fonction de création du prédicteur SAM
-def create_sam_predictor():
+def create_sam_predictor(version):
     # select the device for computation
     if torch.cuda.is_available():
         device = torch.device("cuda")
@@ -70,9 +70,11 @@ def create_sam_predictor():
     from sam2.build_sam import build_sam2
     from sam2.sam2_image_predictor import SAM2ImagePredictor
 
-    sam2_checkpoint = os.path.abspath("./model/sam2.1_hiera_small.pt")
-    model_cfg = os.path.abspath("./model/sam2.1_hiera_s.yaml")
+    list_checkpoint = [f for f in os.listdir(f"./IA/SAM_2/{version}") if f.endswith(".pt")]
+    sam2_checkpoint = os.path.abspath(f"./IA/SAM_2/{version}/{list_checkpoint[0]}")
 
+    list_model_cfg = [f for f in os.listdir(f"./IA/SAM_2/{version}") if f.endswith(".yaml")]
+    model_cfg = os.path.abspath(f"./IA/SAM_2/{version}/{list_model_cfg[0]}")
     sam2_model = build_sam2(
         config_file=model_cfg,
         ckpt_path=sam2_checkpoint,
@@ -111,7 +113,7 @@ def rgb_resize(image, taille_max):
 
 
 # Fonction principale pour créer des masques pour toutes les images dans un dossier
-def make_mask(folder_path, taille_max=2048):
+def make_mask(folder_path, taille_max=2048, version = "small"):
     # Charger toute les images du dossier
     images = []
     images_names = os.listdir(folder_path)
@@ -142,7 +144,7 @@ def make_mask(folder_path, taille_max=2048):
     output_folder = os.path.join(os.path.dirname(folder_path), os.path.basename(folder_path) + '_segmented')
     os.makedirs(output_folder, exist_ok=True)
 
-    predictor, device = create_sam_predictor()
+    predictor, device = create_sam_predictor(version)
 
     im1 = images[0]
     predictor.set_image(im1)
@@ -186,18 +188,27 @@ def make_mask(folder_path, taille_max=2048):
 if __name__ == "__main__":
 
     # INPUTS
-    folder = './dataset/validation/bouddha/'
+    folder = './data/image'
     taille_max = 2048
+    sam_version = "base+"
+    apply_to_all_folders = False
 
     # Liste des sous-dossiers dans le dossier
-    folders = os.listdir(folder)
-    # Garder les folders seulement commencent par S et ne fissant pas par _segmented
-    folders = [f for f in folders if f.startswith('S') and not f.endswith('_segmented')]
-    for f in folders:
-        folder_path = os.path.join(folder, f)
-        print(f"\nProcessing folder: {folder_path}")
+    if apply_to_all_folders:
+        folders = os.listdir(folder)
 
-        # Create masks for all images in the folder
-        make_mask(folder_path, taille_max)
+        # Garder les folders seulement commencent par S et ne fissant pas par _segmented
+        folders = [f for f in folders if f.startswith('S') and not f.endswith('_segmented')]
+        for f in folders:
+            folder_path = os.path.join(folder, f)
+            print(f"\nProcessing folder: {folder_path}")
+
+            # Create masks for all images in the folder
+            make_mask(folder_path, taille_max, sam_version)
     
-    print("\nDone.\n")
+    else:
+        print(f"\nProcessing folder: {folder}")
+        make_mask(folder, taille_max, sam_version)
+
+    
+    print("Done.\n")
