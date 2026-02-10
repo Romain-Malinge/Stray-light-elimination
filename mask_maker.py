@@ -111,6 +111,51 @@ def rgb_resize(image, taille_max):
     return image
 
 
+# Fonction pour obtenir les points d'entrée de l'utilisateur
+def get_input_points(img):
+    """
+    Ouvre une fenêtre pour sélectionner des points sur l'image.
+    - Clic gauche  : point valide (label = 1)
+    - Clic droit   : point non valide (label = 0)
+    - Appuyer sur 'q' pour quitter
+    """
+
+    input_points = []
+    input_labels = []
+
+    display_img = img.copy()
+
+    def mouse_callback(event, x, y, flags, param):
+        nonlocal display_img
+
+        if event == cv2.EVENT_LBUTTONDOWN:
+            # Point valide
+            input_points.append([x, y])
+            input_labels.append(1)
+            cv2.circle(display_img, (x, y), 4, (0, 255, 0), -1)
+
+        elif event == cv2.EVENT_RBUTTONDOWN:
+            # Point non valide
+            input_points.append([x, y])
+            input_labels.append(0)
+            cv2.circle(display_img, (x, y), 4, (0, 0, 255), -1)
+
+    cv2.namedWindow("Select points")
+    cv2.setMouseCallback("Select points", mouse_callback)
+
+    while True:
+        cv2.imshow("Select points", display_img)
+        key = cv2.waitKey(1) & 0xFF
+
+        if key == ord('q'):
+            break
+
+    cv2.destroyAllWindows()
+
+    return input_points, input_labels
+
+
+
 
 # Fonction principale pour créer des masques pour toutes les images dans un dossier
 def make_mask(folder_path, taille_max=2048, version = "small"):
@@ -148,10 +193,7 @@ def make_mask(folder_path, taille_max=2048, version = "small"):
 
     im1 = images[0]
     predictor.set_image(im1)
-
-    H, W, _ = im1.shape
-    input_point = np.array([[W//2, H//2]])
-    input_label = np.array([1])
+    input_point, input_label = get_input_points(im1)
 
     masks, _, _ = predictor.predict(
         point_coords=input_point,
@@ -183,6 +225,8 @@ def make_mask(folder_path, taille_max=2048, version = "small"):
 
         Image.fromarray(image_rgba, mode='RGBA').save(save_path)
         print(f"[{idx}/{nb_im}] image saved to {save_path}")
+    
+    return mask
 
 
 if __name__ == "__main__":
@@ -191,24 +235,8 @@ if __name__ == "__main__":
     folder = './data/image'
     taille_max = 2048
     sam_version = "base+"
-    apply_to_all_folders = False
 
-    # Liste des sous-dossiers dans le dossier
-    if apply_to_all_folders:
-        folders = os.listdir(folder)
-
-        # Garder les folders seulement commencent par S et ne fissant pas par _segmented
-        folders = [f for f in folders if f.startswith('S') and not f.endswith('_segmented')]
-        for f in folders:
-            folder_path = os.path.join(folder, f)
-            print(f"\nProcessing folder: {folder_path}")
-
-            # Create masks for all images in the folder
-            make_mask(folder_path, taille_max, sam_version)
-    
-    else:
-        print(f"\nProcessing folder: {folder}")
-        make_mask(folder, taille_max, sam_version)
+    make_mask(folder, taille_max, sam_version)
 
     
     print("Done.\n")
