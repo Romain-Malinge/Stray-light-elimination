@@ -1,0 +1,11 @@
+#
+# Zoltanfood
+#
+
+newmtl sushiboat1_200k_4kt
+Ka 1 1 1
+Kd 1 1 1
+d 1
+Ns 0
+illum 1
+map_Kd sushiboat1_200k_4kt_u0_v0.png

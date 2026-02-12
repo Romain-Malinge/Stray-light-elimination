@@ -1,0 +1,14 @@
+# Blender MTL File: 'yorubaMask_retopo.03.blend'
+# Material Count: 1
+
+newmtl Default_OBJ
+Ns 230.487652
+Ka 1.000000 1.000000 1.000000
+Kd 0.800000 0.800000 0.800000
+Ks 0.090909 0.090909 0.090909
+Ke 0.000000 0.000000 0.000000
+Ni 1.450000
+d 1.000000
+illum 2
+map_Bump -bm 0.850000 Normals_Baked.04.png
+map_Kd Diffuse_Baked.04.png
