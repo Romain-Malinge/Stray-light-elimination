@@ -5,8 +5,8 @@ from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import filedialog
 import Markers as mk
-import exifread
-import math
+import HDData as hd
+
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 
@@ -16,6 +16,7 @@ SUPPORTED_EXTENSIONS = (".arw", ".jpg", ".jpeg", ".png")
 class PhotoViewer:
     
     def __init__(self, root, folder_path):
+        self.__ids_markers = 0
         self.__rad_marker_hit_box = 15
         self.__id_im = 0;
         self.root = root
@@ -53,6 +54,15 @@ class PhotoViewer:
 
         if ext == ".arw":
             with rawpy.imread(path) as raw:
+                
+                # Dimensions de l'image RAW et RGB (post-processée)
+                self.raw_height, self.raw_width = raw.raw_image.shape
+                self.rgb_width, self.rgb_height = raw.sizes.width, raw.sizes.height
+                
+                # Les marges du capteur (zones non actives)
+                self.offset_top = raw.sizes.top_margin
+                self.offset_left = raw.sizes.left_margin
+                
                 rgb = raw.postprocess(
                     use_camera_wb=True,
                     demosaic_algorithm=rawpy.DemosaicAlgorithm.AHD,
@@ -61,15 +71,17 @@ class PhotoViewer:
                     no_auto_bright=False)
                 
             img = Image.fromarray(rgb)
+            
+            screen_max_size = (1000, 1000)
+            img_display = img.copy()
+            img_display.thumbnail(screen_max_size, Image.Resampling.LANCZOS)
+            self.display_width, self.display_height = img_display.size
+            # problème entre l'affichage et la séléction
         else:
-            img = Image.open(path)
-
-        self.original_width, self.original_height = img.size
-
-        img.thumbnail((1000, 800))
-        self.display_width, self.display_height = img.size
-
-        return img
+            print("Extension non supportée pour l'affichage :", ext)
+            return None
+        
+        return img_display
 
     def show_image(self):
         if not self.files:
@@ -94,15 +106,17 @@ class PhotoViewer:
         self.root.title(f"{os.path.basename(path)}")
 
     def manip_marker(self, event):
+        
+        # Coordonnées du clic dans le canevas
         x_display = event.x
         y_display = event.y
 
         # Conversion coordonnées affichage → coordonnées originales
-        scale_x = self.original_width / self.display_width
-        scale_y = self.original_height / self.display_height
+        scale_x = self.raw_width / self.rgb_width
+        scale_y = self.raw_height / self.rgb_height
         
-        x_real = int(x_display * scale_x)
-        y_real = int(y_display * scale_y)
+        x_real = int(x_display * scale_x + self.offset_left)
+        y_real = int(y_display * scale_y + self.offset_top)
         
         # Vérifier si un marqueur existe déjà à proximité
         already_exist = False
@@ -118,30 +132,44 @@ class PhotoViewer:
         # Si un marqueur existe déjà à proximité, le supprimer 
         if already_exist :
             self.markers.remove(marker)
-            self.canvas.delete(marker.getID())
-            print(f"Suppresion du marqeur d'id : {marker.getID()}")
+            print(marker.getTag())
+            self.canvas.delete(marker.getTag())
+            print(f"Suppresion du marqeur d'id : {marker.getTag()}")
             
             # Supprimer la courbe correspondante dans le graphique
-            self.__graph.remove_graph(marker.getID())
+            self.__graph.remove_graph(marker.getTag())
             
         # Sinon, en créer un nouveau
         else:
-
+            self.__ids_markers += 1
+            tag_maker_text = "M_" + str(self.__ids_markers)
             # Dessiner un petit cercle rouge
             r = 3
-            id = self.canvas.create_oval(
+            
+            self.canvas.create_oval(
                 x_display - r, y_display - r,
                 x_display + r, y_display + r,
-                fill="red"
+                fill="red",
+                tags=tag_maker_text
             )
             
-            newMark = mk.Marker(x_real, y_real, id)
+            self.canvas.create_text(
+                x_display,
+                y_display - 12,
+                text=tag_maker_text,
+                fill="red",
+                font=("Arial", 10, "bold"),
+                tags=tag_maker_text
+            )
+
+            newMark = mk.Marker(x_real, y_real, tag_maker_text)
             self.markers.append(newMark)
             
-            print(f"Ajout du marqueur d'ID {id}")
+            print(f"Ajout du marqueur d'ID {tag_maker_text}")
+            print("Veuillez patienter pendant le calcul de la courbe H&D...")
             
             # Ajouter la courbe correspondante dans le graphique
-            hddata = HDData(self.folder_path, x_real, y_real, id)
+            hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text)
             self.__graph.add_graph(hddata)
 
     def next_image(self):
@@ -153,92 +181,7 @@ class PhotoViewer:
         if self.index > 0:
             self.index -= 1
             self.show_image()
-
-class HDData:
-    
-    def __init__(self, folder_path, x, y, id):
-        self.__folder_path = folder_path
-        self.__x = x
-        self.__y = y
-        self.__id = id
-        
-        self.__exposures, self.__pixel_values = self.extract_hd_data()
-    
-    def extract_exposure_time(self, path):
-        """
-        Extrait le temps de pose EXIF (en secondes)
-        """
-        with open(path, "rb") as f:
-            tags = exifread.process_file(f, stop_tag="EXIF ExposureTime")
-
-            exposure = tags.get("EXIF ExposureTime")
-            if exposure is None:
-                return None
-
-            # ex: 1/8000
-            if "/" in str(exposure):
-                num, den = map(float, str(exposure).split("/"))
-                return num / den
-            else:
-                return float(str(exposure))
-            
-    def extract_hd_data(self):
-        """
-        Récupère les données nécessaires pour tracer la courbe H&D
-        pour un pixel (x,y).
-        
-        Retourne :
-            exposures_log : liste log10(temps de pose)
-            pixel_values  : liste valeurs RAW correspondantes
-        """
-
-        exposures = []
-        pixel_values = []
-        
-        files = sorted([
-            os.path.join(self.__folder_path, f)
-            for f in os.listdir(self.__folder_path)
-            if f.lower().endswith(".arw")
-        ])
-
-        for path in files:
-
-            exposure_time = self.extract_exposure_time(path)
-            if exposure_time is None:
-                continue
-
-            with rawpy.imread(path) as raw:
-                raw_data = raw.raw_image_visible
-
-                # Sécurité
-                if self.__y >= raw_data.shape[0] or self.__x >= raw_data.shape[1]:
-                    continue
-
-                value = raw_data[self.__y, self.__x] - raw.black_level_per_channel[0]
-
-            exposures.append(exposure_time)
-            pixel_values.append(value)
-
-        # Convertir en log10
-        exposures_log = [math.log10(t) for t in exposures]
-
-        # Trier par exposition croissante
-        combined = sorted(zip(exposures_log, pixel_values), key=lambda x: x[0])
-
-        exposures_log_sorted = [c[0] for c in combined]
-        pixel_values_sorted = [c[1] for c in combined]
-
-        return exposures_log_sorted, pixel_values_sorted
-       
-    def getListExpo(self):
-        return self.__exposures
-    
-    def getListPixValues(self):
-        return self.__pixel_values
-
-    def getID(self):
-        return self.__id
-    
+   
 class HDGraphWindow:
     def __init__(self, parent):
 
@@ -247,6 +190,7 @@ class HDGraphWindow:
         self.window.title("Courbe Hurter & Driffield")
         self.window.geometry("800x600")
         
+        # Dictionnaire pour stocker les courbes associées à chaque marqueur
         self.__list_pairs = {}
 
         # Création figure matplotlib
@@ -255,29 +199,39 @@ class HDGraphWindow:
         # Configuration des axes
         self.ax.set_title("Courbe de Hurter & Driffield")
         self.ax.set_xlabel("log10(Temps de pose [s])")
-        self.ax.set_ylabel("Signal RAW normalisé")
+        self.ax.set_ylabel("Signal RAW")
         self.ax.set_xlim(-4, 1)     # 1/10000 → 10 sec approx
         self.ax.set_ylim(0, 17000)
 
         self.ax.grid(True)
+        self.ax.legend(
+            loc="best",
+            fontsize=10,
+            frameon=True
+        )
 
         # Intégration dans Tkinter
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.window)
         self.canvas.draw()
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
-    def add_graph(self, hddata: HDData):
-        line, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-')
-        self.__list_pairs[hddata.getID()] = line
-        
+    def add_graph(self, hddata: hd.HDData):
+        line, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-', label=hddata.getTag())
+        self.__list_pairs[hddata.getTag()] = line
+        self.ax.legend()
         self.canvas.draw()
     
-    def remove_graph(self, id):
-        if id in self.__list_pairs:
-            self.__list_pairs[id].remove()
-            del self.__list_pairs[id]
+    def remove_graph(self, tag):
+        if tag in self.__list_pairs:
+            # Enlever du graphique
+            self.__list_pairs[tag].remove()
+            # Enlever de la liste
+            del self.__list_pairs[tag]
+            self.ax.legend()
             self.canvas.draw()
 
+
+## Boucle principale
 def main():
     root = tk.Tk()
     folder = filedialog.askdirectory(title="Choisir un dossier d'images")
@@ -285,7 +239,6 @@ def main():
         return
 
     app = PhotoViewer(root, folder)
-
     root.mainloop()
 
 
