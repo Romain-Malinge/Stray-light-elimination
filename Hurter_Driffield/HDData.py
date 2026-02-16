@@ -70,7 +70,8 @@ class HDData:
                 
                 # (Optionnel mais critique pour l'OECF) : Soustraction du niveau de noir
                 # Le capteur Sony ajoute un offset (ex: 512) pour éviter les valeurs négatives dues au bruit
-                black_level = raw.black_level_per_channel[raw.raw_color_indices[self.__y, self.__x]]
+                color_index = raw.raw_colors[self.__y, self.__x]
+                black_level = raw.black_level_per_channel[color_index]
                 linear_value = max(0, value - black_level)
 
             exposures.append(exposure_time)

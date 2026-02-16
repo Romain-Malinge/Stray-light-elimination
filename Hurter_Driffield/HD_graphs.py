@@ -72,11 +72,12 @@ class PhotoViewer:
                 
             img = Image.fromarray(rgb)
             
+            # Redimensionnement pour l'affichage 
             screen_max_size = (1000, 1000)
             img_display = img.copy()
             img_display.thumbnail(screen_max_size, Image.Resampling.LANCZOS)
             self.display_width, self.display_height = img_display.size
-            # problème entre l'affichage et la séléction
+            
         else:
             print("Extension non supportée pour l'affichage :", ext)
             return None
@@ -112,11 +113,13 @@ class PhotoViewer:
         y_display = event.y
 
         # Conversion coordonnées affichage → coordonnées originales
-        scale_x = self.raw_width / self.rgb_width
-        scale_y = self.raw_height / self.rgb_height
+        scale_x = self.rgb_width / self.display_width
+        scale_y = self.rgb_height / self.display_height
         
         x_real = int(x_display * scale_x + self.offset_left)
         y_real = int(y_display * scale_y + self.offset_top)
+        
+        print(f"Clic écran: ({x_display}, {y_display}) -> Coordonnée RAW: ({x_real}, {y_real})")
         
         # Vérifier si un marqueur existe déjà à proximité
         already_exist = False
@@ -132,7 +135,6 @@ class PhotoViewer:
         # Si un marqueur existe déjà à proximité, le supprimer 
         if already_exist :
             self.markers.remove(marker)
-            print(marker.getTag())
             self.canvas.delete(marker.getTag())
             print(f"Suppresion du marqeur d'id : {marker.getTag()}")
             
@@ -187,7 +189,7 @@ class HDGraphWindow:
 
         # Nouvelle fenêtre
         self.window = tk.Toplevel(parent)
-        self.window.title("Courbe Hurter & Driffield")
+        self.window.title("Courbe Opto-Electronic Conversion Function (OECF)")
         self.window.geometry("800x600")
         
         # Dictionnaire pour stocker les courbes associées à chaque marqueur
@@ -197,18 +199,13 @@ class HDGraphWindow:
         self.fig, self.ax = plt.subplots(figsize=(7, 5))
 
         # Configuration des axes
-        self.ax.set_title("Courbe de Hurter & Driffield")
-        self.ax.set_xlabel("log10(Temps de pose [s])")
-        self.ax.set_ylabel("Signal RAW")
+        self.ax.set_title("Courbe OECF")
+        self.ax.set_xlabel("Log10(Exposure Time [s])")
+        self.ax.set_ylabel("Valeur Numérique Linéaire (DN)")
         self.ax.set_xlim(-4, 1)     # 1/10000 → 10 sec approx
         self.ax.set_ylim(0, 17000)
 
         self.ax.grid(True)
-        self.ax.legend(
-            loc="best",
-            fontsize=10,
-            frameon=True
-        )
 
         # Intégration dans Tkinter
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.window)
@@ -218,7 +215,10 @@ class HDGraphWindow:
     def add_graph(self, hddata: hd.HDData):
         line, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-', label=hddata.getTag())
         self.__list_pairs[hddata.getTag()] = line
-        self.ax.legend()
+        self.ax.legend(
+            loc="best",
+            fontsize=10,
+            frameon=True)
         self.canvas.draw()
     
     def remove_graph(self, tag):
@@ -227,7 +227,10 @@ class HDGraphWindow:
             self.__list_pairs[tag].remove()
             # Enlever de la liste
             del self.__list_pairs[tag]
-            self.ax.legend()
+            self.ax.legend(
+                loc="best",
+                fontsize=10,
+                frameon=True)
             self.canvas.draw()
 
 
