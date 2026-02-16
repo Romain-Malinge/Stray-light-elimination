@@ -85,106 +85,102 @@ def create_sam_predictor(version):
     return predictor, device
 
 
-# Fonction de conversion d'une image en RGB et redimensionnement si nécessaire
-def rgb_resize(image, taille_max):
-
-    # Cas image PIL
-    if isinstance(image, Image.Image):
-        # Conversion explicite en RGB quel que soit le mode
-        if image.mode != "RGB":
-            image = image.convert("RGB")
+def load_image(image_path, brightness=1.0):
+    # Cas RAW
+    if isinstance(image_path, str) and image_path.lower().endswith(".nef"):
+        with rawpy.imread(image_path) as raw:
+            image = raw.postprocess(
+                use_camera_wb=True,
+                bright=brightness,
+                output_bps=8
+            )
+            image = np.array(image)
+    # Cas autres formats
     else:
-        raise TypeError("L'entrée doit être une image PIL")
-
-    # Redimensionnement
-    if max(image.size) > taille_max:
-        scale = taille_max / max(image.size)
-        new_size = (
-            int(image.size[0] * scale),
-            int(image.size[1] * scale)
-        )
-        image = image.resize(new_size, Image.BICUBIC)
-
-    # Conversion numpy uint8
-    image = np.asarray(image, dtype=np.uint8).copy()
-
+        image = Image.open(image_path).convert("RGB")
+        image = np.array(image)
     return image
 
 
 # Fonction pour obtenir les points d'entrée de l'utilisateur
-def get_input_points(img):
+def get_input_points(img, max_size=1000):
     input_points = []
     input_labels = []
 
+    # Image affichée (redimensionnée si nécessaire)
     display_img = img.copy()
 
     def mouse_callback(event, x, y, flags, param):
         nonlocal display_img
 
         if event == cv2.EVENT_LBUTTONDOWN:
-            # Point valide
+
             input_points.append([x, y])
             input_labels.append(1)
+
             cv2.circle(display_img, (x, y), 4, (0, 255, 0), -1)
 
         elif event == cv2.EVENT_RBUTTONDOWN:
-            # Point non valide
             input_points.append([x, y])
             input_labels.append(0)
+
             cv2.circle(display_img, (x, y), 4, (0, 0, 255), -1)
 
-    cv2.namedWindow("Select points")
+    cv2.namedWindow("Select points", cv2.WINDOW_NORMAL)
+    cv2.imshow("Select points", display_img)
+    # Redimensionner la fenêtre si l'image est trop grande
+    H, W = img.shape[:2]
+    if H > max_size or W > max_size:
+        scale = min(max_size / H, max_size / W)
+        new_W = int(W * scale)
+        new_H = int(H * scale)
+        cv2.resizeWindow("Select points", new_W, new_H)
+    else:
+        cv2.resizeWindow("Select points", W, H)
     cv2.setMouseCallback("Select points", mouse_callback)
 
     while True:
         cv2.imshow("Select points", display_img)
         key = cv2.waitKey(1) & 0xFF
 
+        # Entrée = validation
         if key == 13:
             break
 
+        # r = réinitialiser les points
+        if key == ord('r'):
+            input_points = []
+            input_labels = []
+
     cv2.destroyAllWindows()
+
+    if len(input_points) > 0:
+        input_points = np.array(input_points)
+        input_labels = np.array(input_labels)
+    else:
+        input_points = None
+        input_labels = None
 
     return input_points, input_labels
 
 
 # Fonction principale pour créer des masques pour toutes les images dans un dossier
-def make_mask(folder_path, taille_max=2048, version = "small"):
-    # Charger toute les images du dossier
-    images = []
-    images_names = os.listdir(folder_path)
-    idx = 0
-    nb_im = len(images_names)
-    for image_name in images_names:
-        idx += 1
-        image_path = os.path.join(folder_path, image_name)
+def make_mask(folder_path, taille, version = "small"):
 
-        # Cas RAW
-        if isinstance(image_name, str) and image_name.lower().endswith(".nef"):
-            with rawpy.imread(image_path) as raw:
-                image = raw.postprocess(
-                    use_camera_wb=True,
-                    bright=1.0,
-                    output_bps=8
-                )
-                image = Image.fromarray(image)
-        # Cas autres formats
-        else:
-            image = Image.open(image_path)
-
-        image = rgb_resize(image, taille_max)
-        images.append(image)
-        print(f"[{idx}/{nb_im}] Resized image {image_name} to {image.shape[1]} x {image.shape[0]}")
-    
     # Créer un nouveau dossier pour sauvegarder les images segmentées à coté du premier dossier
     output_folder = os.path.join(os.path.dirname(folder_path), os.path.basename(folder_path) + '_segmented')
     os.makedirs(output_folder, exist_ok=True)
 
-    predictor, device = create_sam_predictor(version)
+    # trouvrer les nom des images dans le dossier
+    images_names = os.listdir(folder_path)
 
-    im1 = images[0]
-    predictor.set_image(im1)
-    input_point, input_label = get_input_points(im1)
+    # Calculler le masque de la première image du dossier
+    image1_path = os.path.join(folder_path, images_names[0])
+    image1 = load_image(image1_path, brightness=1.0)
+
+    predictor, device = create_sam_predictor(version)
+    predictor.set_image(image1)
+    input_point, input_label = get_input_points(image1)
 
     masks, _, _ = predictor.predict(
         point_coords=input_point,
@@ -195,6 +191,35 @@ def make_mask(folder_path, taille_max=2048, version = "small"):
     # Convertir le masque en format uint8
     mask = masks[0].astype(np.uint8)
 
+    # Calculer le reshape a effectuer
+    H = image1.shape[0]
+    W = image1.shape[1]
+    ys, xs = np.where(mask > 0)
+    min_y, max_y = ys.min(), ys.max()
+    min_x, max_x = xs.min(), xs.max()
+
+    ctr_x = (min_x + max_x) // 2
+    ctr_y = (min_y + max_y) // 2
+    h = max_y - min_y
+    w = max_x - min_x
+    if h > w:
+        min_x = max(0, ctr_x - h // 2)
+        max_x = min(W, min_x + h)
+    elif w > h:
+        min_y = max(0, ctr_y - w // 2)
+        max_y = min(H, min_y + w)
+    
+    # Ajouter une marge autour du masque
+    margin = 10  # Ajuster la valeur de la marge selon vos besoins
+    min_x = max(0, min_x - margin)
+    max_x = min(W, max_x + margin)
+    min_y = max(0, min_y - margin)
+    max_y = min(H, max_y + margin)
+        
+    # reshape in a taille x taille image
+    mask = mask[min_y:max_y, min_x:max_x]
+    mask = cv2.resize(mask, (taille, taille), interpolation=cv2.INTER_NEAREST)
+
     # Garder la composante connexe la plus grande du masque
     num_labels, labels_im = cv2.connectedComponents(mask)
     if num_labels > 1:
@@ -203,26 +228,27 @@ def make_mask(folder_path, taille_max=2048, version = "small"):
     
     # Comblet les trou du masque
     mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-    
-    # Sauvegarder chaque image avec le masque appliqué en format PNG
-    idx = 0
-    for image, image_name in zip(images, images_names):
-        idx += 1
-        # Appliquer le masque à l'image
-        image = image * mask[:, :, None]
-        alpha = (mask * 255).astype(np.uint8)[:, :, None]
-        image_rgba = np.concatenate((image, alpha), axis=2)
 
-        # retirer l'extension du nom de l'image
-        image_name = os.path.splitext(image_name)[0]
-        save_path = os.path.join(output_folder, image_name + '_segmented.png')
-
-        Image.fromarray(image_rgba, mode='RGBA').save(save_path)
-        print(f"[{idx}/{nb_im}] image saved to {save_path}")
-    
     # Sauvegarder un masque binaire pour chaque image
     mask_save_path = os.path.join(output_folder, 'mask.png')
     Image.fromarray((mask * 255).astype(np.uint8), mode='L').save(mask_save_path)
+    print(f"Mask saved to {mask_save_path}")
+    
+    idx = 0
+    nb_im = len(images_names)
+    # Sauvegarder les images redimensionnées dans une liste
+    for image_name in images_names:
+        idx += 1
+        image_path = os.path.join(folder_path, image_name)
+
+        image = load_image(image_path, brightness=1.0)
+        image = image[min_y:max_y, min_x:max_x]
+        image = cv2.resize(image, (taille, taille), interpolation=cv2.INTER_AREA)
+        image_rgb = np.multiply(image, mask[:, :, np.newaxis])
+
+        save_path = os.path.join(output_folder, image_name + '_segmented.png')
+        Image.fromarray(image_rgb, mode='RGB').save(save_path)
+        print(f"[{idx}/{nb_im}] Image {image_name} reframed.")
     
     return mask
 
@@ -230,11 +256,11 @@ def make_mask(folder_path, taille_max=2048, version = "small"):
 if __name__ == "__main__":
 
     # INPUTS
-    folder = './data/image'
-    taille_max = 2048
-    sam_version = "base+"
+    folder = './data/eve'
+    taille = 1024
+    sam_version = "large"
 
-    make_mask(folder, taille_max, sam_version)
+    make_mask(folder, taille, sam_version)
 
     
     print("Done.\n")
