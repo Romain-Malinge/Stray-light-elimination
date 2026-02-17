@@ -1,0 +1,4 @@
+rawpy
+Pillow
+matplotlib
+exifread

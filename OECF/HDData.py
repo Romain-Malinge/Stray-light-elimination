@@ -1,5 +1,4 @@
 import exifread
-import math
 import os
 import rawpy
 
@@ -76,23 +75,13 @@ class HDData:
 
             exposures.append(exposure_time)
             pixel_values.append(linear_value)
+            
+        combined = sorted(zip(exposures, pixel_values), key=lambda x: x[0])
 
-        # Convertir en log10
-        try :
-            exposures_log = [math.log10(t) for t in exposures]
-            #pixel_values = [math.log10(v) for v in pixel_values]
-        except:
-            print("Erreur lors du calcul des logs.")
-            print("Exposures:", exposures)
-            print("Pixel Values:", pixel_values)
-            return [], []
-        # Trier par exposition croissante
-        combined = sorted(zip(exposures_log, pixel_values), key=lambda x: x[0])
-
-        exposures_log_sorted = [c[0] for c in combined]
+        exposures_sorted = [c[0] for c in combined]
         pixel_values_sorted = [c[1] for c in combined]
 
-        return exposures_log_sorted, pixel_values_sorted
+        return exposures_sorted, pixel_values_sorted
        
     def getListExpo(self):
         return self.__exposures

@@ -1,12 +1,10 @@
 import os
 import rawpy
-import numpy as np
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import filedialog
 import Markers as mk
 import HDData as hd
-
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -18,7 +16,7 @@ class PhotoViewer:
     
     def __init__(self, root, folder_path):
         self.__ids_markers = 0
-        self.__rad_marker_hit_box = 15
+        self.__rad_marker_hit_box = 20
         self.__id_im = 0;
         self.root = root
         self.root.title("Liseuse Photo")
@@ -33,8 +31,34 @@ class PhotoViewer:
         button_frame = tk.Frame(self.root)
         button_frame.pack()
 
-        tk.Button(button_frame, text="⬅ Précédent", command=self.prev_image).pack(side="left", padx=10)
-        tk.Button(button_frame, text="Suivant ➡", command=self.next_image).pack(side="left", padx=10)
+        tk.Button(
+            button_frame, 
+            text="< Précédent", 
+            command=self.prev_image,
+            bg="#f0f0f0",          
+            fg="#333333",          
+            activebackground="#e0e0e0",
+            font=("Arial", 10, "bold"),
+            relief="flat",         
+            borderwidth=0,
+            cursor="hand2",        
+            padx=15,
+            pady=8
+        ).pack(side="left", padx=10, pady=10)
+        tk.Button(
+            button_frame, 
+            text="Suivant >", 
+            command=self.next_image,
+            bg="#f0f0f0",         
+            fg="#333333",         
+            activebackground="#e0e0e0",
+            font=("Arial", 10, "bold"),
+            relief="flat",        
+            borderwidth=0,
+            cursor="hand2",        
+            padx=15,
+            pady=8
+        ).pack(side="right", padx=10, pady=10)
 
         self.canvas.bind("<Button-1>", self.manip_marker)
 
@@ -169,12 +193,12 @@ class PhotoViewer:
             self.markers.append(newMark)
             
             print(f"Ajout du marqueur d'ID {tag_maker_text}")
-            print("Veuillez patienter pendant le calcul de la courbe H&D...")
+            print("Veuillez patienter pendant le calcul de la courbe...")
             
             # Ajouter la courbe correspondante dans le graphique
             hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text)
             self.__graph.add_graph(hddata)
-            print("Courbe H&D ajoutée pour le marqueur ", tag_maker_text)
+            print("Courbe ajoutée pour le marqueur ", tag_maker_text)
 
     def next_image(self):
         if self.index < len(self.files) - 1:
@@ -203,25 +227,27 @@ class HDGraphWindow:
 
         # Configuration des axes
         self.ax.set_title("Courbe OECF")
-        self.ax.set_xlabel("Log10(Exposure Time [s])")
-        self.ax.set_ylabel("Valeur RAW (Log10(DN))")
-        self.ax.set_xlim(-4, 1)     # 1/10000 → 10 sec approx
+        self.ax.set_xlabel("Temps d'exposition (s)")
+        self.ax.set_ylabel("Valeur Numérique RAW")
+        
         self.ax.set_ylim(1, 20000)
+        self.ax.set_xscale('log', base=10)
         self.ax.set_yscale('log', base=10)
+        
         self.ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
         self.ax.yaxis.get_major_formatter().set_scientific(False)
         
         def format_func(value, tick_number):
-            time = 10**value # On revient au temps linéaire
-            if time >= 1:
-                return f"{time:.1f}s"
+            if value >= 1:
+                return f"{value:.1f}s"
             else:
-                return f"1/{int(round(1/time))}"
+                return f"1/{int(round(1/value))}"
+        
         self.ax.xaxis.set_major_formatter(ticker.FuncFormatter(format_func))
-        stops = np.array([1/8000, 1/2000, 1/500, 1/125, 1/30, 1/8, 0.5, 2, 4])
-        self.ax.set_xticks(np.log10(stops))
+        stops = [1/8000, 1/2000, 1/500, 1/125, 1/30, 1/8, 0.5, 2, 4]
+        self.ax.set_xticks(stops)
 
-        self.ax.grid(True)
+        self.ax.grid(True, which="both", linestyle='--', alpha=0.5)
 
         # Intégration dans Tkinter
         self.canvas = FigureCanvasTkAgg(self.fig, master=self.window)
