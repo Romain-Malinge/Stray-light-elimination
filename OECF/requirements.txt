@@ -2,3 +2,4 @@ rawpy
 Pillow
 matplotlib
 exifread
+numpy
