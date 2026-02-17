@@ -72,14 +72,20 @@ class HDData:
                 # Le capteur Sony ajoute un offset (ex: 512) pour éviter les valeurs négatives dues au bruit
                 color_index = raw.raw_colors[self.__y, self.__x]
                 black_level = raw.black_level_per_channel[color_index]
-                linear_value = max(0, value - black_level)
+                linear_value = max(0.0001, value - black_level)
 
             exposures.append(exposure_time)
             pixel_values.append(linear_value)
 
         # Convertir en log10
-        exposures_log = [math.log10(t) for t in exposures]
-
+        try :
+            exposures_log = [math.log10(t) for t in exposures]
+            #pixel_values = [math.log10(v) for v in pixel_values]
+        except:
+            print("Erreur lors du calcul des logs.")
+            print("Exposures:", exposures)
+            print("Pixel Values:", pixel_values)
+            return [], []
         # Trier par exposition croissante
         combined = sorted(zip(exposures_log, pixel_values), key=lambda x: x[0])
 

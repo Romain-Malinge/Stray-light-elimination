@@ -9,6 +9,7 @@ import HDData as hd
 
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 
 SUPPORTED_EXTENSIONS = (".arw", ".jpg", ".jpeg", ".png")
 
@@ -173,6 +174,7 @@ class PhotoViewer:
             # Ajouter la courbe correspondante dans le graphique
             hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text)
             self.__graph.add_graph(hddata)
+            print("Courbe H&D ajoutée pour le marqueur ", tag_maker_text)
 
     def next_image(self):
         if self.index < len(self.files) - 1:
@@ -185,6 +187,7 @@ class PhotoViewer:
             self.show_image()
    
 class HDGraphWindow:
+    
     def __init__(self, parent):
 
         # Nouvelle fenêtre
@@ -201,9 +204,22 @@ class HDGraphWindow:
         # Configuration des axes
         self.ax.set_title("Courbe OECF")
         self.ax.set_xlabel("Log10(Exposure Time [s])")
-        self.ax.set_ylabel("Valeur Numérique Linéaire (DN)")
+        self.ax.set_ylabel("Valeur RAW (Log10(DN))")
         self.ax.set_xlim(-4, 1)     # 1/10000 → 10 sec approx
-        self.ax.set_ylim(0, 17000)
+        self.ax.set_ylim(1, 20000)
+        self.ax.set_yscale('log', base=10)
+        self.ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
+        self.ax.yaxis.get_major_formatter().set_scientific(False)
+        
+        def format_func(value, tick_number):
+            time = 10**value # On revient au temps linéaire
+            if time >= 1:
+                return f"{time:.1f}s"
+            else:
+                return f"1/{int(round(1/time))}"
+        self.ax.xaxis.set_major_formatter(ticker.FuncFormatter(format_func))
+        stops = np.array([1/8000, 1/2000, 1/500, 1/125, 1/30, 1/8, 0.5, 2, 4])
+        self.ax.set_xticks(np.log10(stops))
 
         self.ax.grid(True)
 
