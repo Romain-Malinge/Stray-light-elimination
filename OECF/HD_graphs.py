@@ -98,7 +98,8 @@ class PhotoViewer:
                     demosaic_algorithm=rawpy.DemosaicAlgorithm.AHD,
                     output_bps=8,
                     gamma=(2.222, 4.5),
-                    no_auto_bright=False)
+                    no_auto_bright=False,
+                    half_size=True)
                 
             img = Image.fromarray(rgb)
             
