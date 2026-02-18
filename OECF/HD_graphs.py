@@ -1,5 +1,6 @@
 import os
 import rawpy
+import numpy as np
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import filedialog
@@ -8,6 +9,7 @@ import HDData as hd
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import time
 
 SUPPORTED_EXTENSIONS = (".arw", ".jpg", ".jpeg", ".png")
 
@@ -88,6 +90,9 @@ class PhotoViewer:
                 self.offset_top = raw.sizes.top_margin
                 self.offset_left = raw.sizes.left_margin
                 
+                # Conserver une vue de l'image RAW
+                self.generer_vue_raw(raw)
+                
                 rgb = raw.postprocess(
                     use_camera_wb=True,
                     demosaic_algorithm=rawpy.DemosaicAlgorithm.AHD,
@@ -108,6 +113,20 @@ class PhotoViewer:
             return None
         
         return img_display
+    
+    def generer_vue_raw(self, raw):
+        # 1. Récupérer la matrice brute
+        data = raw.raw_image.astype(np.float32)
+        
+        # 2. Normalisation rapide pour la visibilité (0-255)
+        # On soustrait le noir et on scale vers 8 bits
+        black = np.min(raw.black_level_per_channel)
+        white = raw.white_level
+        data = (data - black) / (white - black) * 255
+        data = np.clip(data, 0, 255).astype(np.uint8)
+        
+        # 3. Créer une image PIL (L = Luminance / Grayscale)
+        self.__image_raw_full = Image.fromarray(data, mode='L')
 
     def show_image(self):
         if not self.files:
@@ -137,7 +156,7 @@ class PhotoViewer:
         x_display = event.x
         y_display = event.y
 
-        # Conversion coordonnées affichage → coordonnées originales
+        # Conversion coordonnées affichage en coordonnées originales
         scale_x = self.rgb_width / self.display_width
         scale_y = self.rgb_height / self.display_height
         
@@ -170,9 +189,9 @@ class PhotoViewer:
         else:
             self.__ids_markers += 1
             tag_maker_text = "M_" + str(self.__ids_markers)
+            
             # Dessiner un petit cercle rouge
             r = 3
-            
             self.canvas.create_oval(
                 x_display - r, y_display - r,
                 x_display + r, y_display + r,
@@ -198,7 +217,10 @@ class PhotoViewer:
             # Ajouter la courbe correspondante dans le graphique
             hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text)
             self.__graph.add_graph(hddata)
-            print("Courbe ajoutée pour le marqueur ", tag_maker_text)
+            print(" : Courbe ajoutée pour le marqueur ", tag_maker_text)
+            
+            # Vérification du clic avec la loupe
+            self.verifier_clic_raw(x_real, y_real)
 
     def next_image(self):
         if self.index < len(self.files) - 1:
@@ -210,6 +232,37 @@ class PhotoViewer:
             self.index -= 1
             self.show_image()
    
+    def verifier_clic_raw(self, x_raw, y_raw):
+        # 1. Préparation du crop
+        taille_loupe = 60 
+        box = (x_raw - taille_loupe, y_raw - taille_loupe, 
+                x_raw + taille_loupe, y_raw + taille_loupe)
+        crop_raw = self.__image_raw_full.crop(box)
+        
+        # 2. Agrandissement
+        taille_image = 400
+        crop_visible = crop_raw.resize((taille_image, taille_image), Image.Resampling.NEAREST)
+        
+        # 3. Création de la fenêtre
+        self.fenetre_zoom = tk.Toplevel()
+        self.fenetre_zoom.title(f"Vérification RAW - ({x_raw}, {y_raw})")
+        
+        # 4. Utilisation d'un Canvas pour dessiner par-dessus
+        canvas = tk.Canvas(self.fenetre_zoom, width=taille_image, height=taille_image)
+        canvas.pack()
+        
+        # On garde la référence de l'image pour éviter le garbage collection
+        self.img_tk_zoom = ImageTk.PhotoImage(crop_visible)
+        canvas.create_image(0, 0, anchor="nw", image=self.img_tk_zoom)
+        
+        # 5. AJOUT DU PIXEL ROUGE (Cible)
+        # On dessine un petit carré de 4x4 pixels au centre exact
+        centre = taille_image / 2
+        r = 2 # rayon du marqueur
+        canvas.create_rectangle(centre - r, centre - r, centre + r, centre + r, 
+                                fill="red", outline="white")
+        tk.Label(self.fenetre_zoom, text=f"Zoom RAW à ({x_raw}, {y_raw})").pack()
+    
 class HDGraphWindow:
     
     def __init__(self, parent):
@@ -255,24 +308,31 @@ class HDGraphWindow:
         self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         
     def add_graph(self, hddata: hd.HDData):
+        # On ajoute la courbe au graphique
         line, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-', label=hddata.getTag())
+        # On stocke la courbe dans le dictionnaire pour pouvoir la supprimer plus tard
         self.__list_pairs[hddata.getTag()] = line
+        # Mise à jour de la légende
         self.ax.legend(
             loc="best",
             fontsize=10,
             frameon=True)
+        # Mise à jour de l'affichage
         self.canvas.draw()
     
     def remove_graph(self, tag):
         if tag in self.__list_pairs:
-            # Enlever du graphique
+            # Enlever la courbe du graphique
             self.__list_pairs[tag].remove()
-            # Enlever de la liste
+            # Enlever la courbe de la liste
             del self.__list_pairs[tag]
-            self.ax.legend(
+            # Mettre à jour la légende
+            if self.__list_pairs:
+                self.ax.legend(
                 loc="best",
                 fontsize=10,
                 frameon=True)
+            # Mise à jour de l'affichage
             self.canvas.draw()
 
 

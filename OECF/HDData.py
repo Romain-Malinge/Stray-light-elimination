@@ -2,6 +2,21 @@ import exifread
 import os
 import rawpy
 import numpy as np
+import sys
+
+def afficher_progression(actuel, total, nom_fichier=""):
+        """Affiche une barre de progression simple dans le terminal."""
+        largeur_barre = 40
+        progression = actuel / total
+        nb_carres = int(largeur_barre * progression)
+        
+        # Création de la ligne : [████░░░░] 50% - fichier.arw
+        barre = "█" * nb_carres + "░" * (largeur_barre - nb_carres)
+        pourcentage = int(progression * 100)
+        
+        # \r ramène le curseur au début de la ligne
+        sys.stdout.write(f"\r|{barre}| {pourcentage}% - Analyse : {nom_fichier}")
+        sys.stdout.flush() # Force l'affichage immédiat
 
 class HDData:
     
@@ -50,8 +65,12 @@ class HDData:
             for f in os.listdir(self.__folder_path)
             if f.lower().endswith(".arw")
         ])
+        
+        nb_files = len(files)
 
-        for path in files:
+        for i, path in enumerate(files):
+            
+            afficher_progression(i+1, nb_files, nom_fichier=os.path.basename(path))
 
             exposure_time = self.extract_exposure_time(path)
             if exposure_time is None:
@@ -78,26 +97,25 @@ class HDData:
                 # Récupération des niveaux de noir pour chaque canal (Sony ARW)
                 black_levels = raw.black_level_per_channel
 
-                # 4. Soustraction de l'offset noir AVANT la moyenne
+                # (Optionnel mais critique pour l'OECF) : Soustraction du niveau de noir
+                # Le capteur Sony ajoute un offset (ex: 512) pour éviter les valeurs négatives dues au bruit
                 # On crée une matrice de la même taille que le ROI avec le bon offset pour chaque pixel
                 roi_black_level = np.zeros_like(roi)
                 for color_idx in range(4): # Pour chaque canal (0:R, 1:G1, 2:B, 3:G2)
                     roi_black_level[roi_colors == color_idx] = black_levels[color_idx]
 
-                # (Optionnel mais critique pour l'OECF) : Soustraction du niveau de noir
-                # Le capteur Sony ajoute un offset (ex: 512) pour éviter les valeurs négatives dues au bruit
                 roi_linear = roi - roi_black_level
 
                 # Sécurité : on remplace les valeurs négatives (dues au bruit dans les noirs) par 0
                 roi_linear = np.clip(roi_linear, 0, None)
 
-                # 5. Calcul de la moyenne sur le canal cliqué
+                # Calcul de la moyenne sur le canal cliqué
                 color_index = raw_colors[self.__y, self.__x]
                 mask = (roi_colors == color_index)
                 moyenne_pure = np.mean(roi_linear[mask])
 
-            exposures.append(exposure_time)
-            pixel_values.append(moyenne_pure)
+            exposures.append(exposure_time) # coordonnée x du pixel
+            pixel_values.append(moyenne_pure) # coordonnée y du pixel
             
         combined = sorted(zip(exposures, pixel_values), key=lambda x: x[0])
 
