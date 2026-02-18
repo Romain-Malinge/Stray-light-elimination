@@ -115,17 +115,17 @@ class PhotoViewer:
         return img_display
     
     def generer_vue_raw(self, raw):
-        # 1. Récupérer la matrice brute
+        # Récupérer la matrice brute
         data = raw.raw_image.astype(np.float32)
         
-        # 2. Normalisation rapide pour la visibilité (0-255)
+        # Normalisation rapide pour la visibilité (0-255)
         # On soustrait le noir et on scale vers 8 bits
         black = np.min(raw.black_level_per_channel)
         white = raw.white_level
         data = (data - black) / (white - black) * 255
         data = np.clip(data, 0, 255).astype(np.uint8)
         
-        # 3. Créer une image PIL (L = Luminance / Grayscale)
+        # Créer une image PIL (L = Luminance / Grayscale)
         self.__image_raw_full = Image.fromarray(data, mode='L')
 
     def show_image(self):
