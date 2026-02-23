@@ -90,7 +90,9 @@ def load_image(image_path, brightness=1.0):
     if isinstance(image_path, str) and image_path.lower().endswith(".nef"):
         with rawpy.imread(image_path) as raw:
             image = raw.postprocess(
-                use_camera_wb=True,
+                use_camera_wb=False,
+                no_auto_bright=True,
+                gamma=(1, 1),
                 bright=brightness,
                 output_bps=8
             )
@@ -252,6 +254,36 @@ def make_mask(folder_path, taille, version = "small"):
     
     return mask
 
+def make_just_one_mask(image_path, version = "small"):
+
+    predictor, device = create_sam_predictor(version)
+
+    image = load_image(image_path, brightness=1.0)
+    predictor.set_image(image)
+    input_point, input_label = get_input_points(image)
+
+    masks, _, _ = predictor.predict(
+        point_coords=input_point,
+        point_labels=input_label,
+        multimask_output=False,
+    )
+
+    # Convertir le masque en format uint8
+    mask = masks[0].astype(np.uint8)
+
+    # Garder la composante connexe la plus grande du masque
+    num_labels, labels_im = cv2.connectedComponents(mask)
+    if num_labels > 1:
+        largest_label = 1 + np.argmax([np.sum(labels_im == i) for i in range(1, num_labels)])
+        mask = (labels_im == largest_label).astype(np.uint8)
+    
+    # export mask as png
+    mask_save_path = os.path.join(os.path.dirname(image_path), 'mask.png')
+    Image.fromarray((mask * 255).astype(np.uint8), mode='L').save(mask_save_path)
+    print(f"Mask saved to {mask_save_path}")
+
+    return mask
+    
 
 if __name__ == "__main__":
 
