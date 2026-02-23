@@ -3,6 +3,7 @@ import os
 import rawpy
 import numpy as np
 import sys
+import cv2
 
 def afficher_progression(actuel, total, nom_fichier=""):
         """Affiche une barre de progression simple dans le terminal."""
@@ -25,17 +26,43 @@ class HDData:
         self.__x = x
         self.__y = y
         self.__tag = tag
-        self.__rad_pix_mean = 0
+        self.__ouverture = -0.1
+        self.__iso = -1
+        self.__focale = -0.1
         
         self.__exposures, self.__pixel_values = self.extract_hd_data()
     
-    def extract_exposure_time(self, path):
+    def extract_parameters(self, path):
         """
         Extrait le temps de pose EXIF (en secondes)
         """
         with open(path, "rb") as f:
-            tags = exifread.process_file(f, stop_tag="EXIF ExposureTime")
-
+            tags = exifread.process_file(f)
+            
+            focale = tags.get('EXIF FocalLength')
+            if focale is not None:
+                if self.__focale == -0.1:
+                    self.__focale = float(focale.values[0])
+                elif self.__focale != float(focale.values[0]):
+                    print(f"Erreur, lors de votre prise de photo vous avez changé de focale à la photo {path}")
+                    return False
+            
+            iso = tags.get('EXIF ISOSpeedRatings')
+            if iso is not None:
+                if self.__iso == -1:
+                    self.__iso = int(iso.values[0])
+                elif self.__iso != int(iso.values[0]) :
+                    print(f"Erreur, lors de votre prise de photo vous avez changé d'iso à la photo {path}")
+                    return False
+            
+            ouverture = tags.get('EXIF FNumber')
+            if ouverture is not None:
+                if self.__ouverture == -0.1:
+                    self.__ouverture = float(ouverture.values[0])
+                elif self.__ouverture != float(ouverture.values[0]):
+                    print(f"Erreur, lors de votre prise de photo vous avez changé d'ouverture à la photo {path}")
+                    return False
+                
             exposure = tags.get("EXIF ExposureTime")
             if exposure is None:
                 return None
@@ -72,30 +99,30 @@ class HDData:
             
             afficher_progression(i+1, nb_files, nom_fichier=os.path.basename(path))
 
-            exposure_time = self.extract_exposure_time(path)
+            exposure_time = self.extract_parameters(path)
             if exposure_time is None:
                 continue
+            elif exposure_time is False:
+                return False
 
             with rawpy.imread(path) as raw:
-                # Accès à la matrice brute (Bayer) non développée
-                # C'est un tableau numpy en 16 bits (souvent 12 ou 14 bits réels)
-                raw_data = raw.raw_image
 
                 # Sécurité
-                if self.__y >= raw_data.shape[0] or self.__x >= raw_data.shape[1]:
+                if self.__y >= raw.raw_image.shape[0] or self.__x >= raw.raw_image.shape[1]:
                     continue
                 
                 # Extraction des blocs de données
-                roi = raw_data[self.__y, self.__x] # Passage en float pour éviter les erreurs d'underflow
-
-            exposures.append(exposure_time) # coordonnée x du pixel
+                roi = raw.raw_image[self.__y, self.__x]
+                
             pixel_values.append(roi) # coordonnée y du pixel
+            exposures.append(exposure_time) # coordonnée x du pixel
+            
             
         combined = sorted(zip(exposures, pixel_values), key=lambda x: x[0])
 
         exposures_sorted = [c[0] for c in combined]
         pixel_values_sorted = [c[1] for c in combined]
-
+        
         return exposures_sorted, pixel_values_sorted
        
     def getListExpo(self):

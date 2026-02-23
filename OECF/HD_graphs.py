@@ -311,6 +311,8 @@ class HDGraphWindow:
     def add_graph(self, hddata: hd.HDData):
         # On ajoute la courbe au graphique
         line, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-', label=hddata.getTag())
+        line2, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-', label=hddata.getTag())
+        line3, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-', label=hddata.getTag())
         # On stocke la courbe dans le dictionnaire pour pouvoir la supprimer plus tard
         self.__list_pairs[hddata.getTag()] = line
         # Mise à jour de la légende
