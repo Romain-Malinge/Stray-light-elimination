@@ -216,7 +216,7 @@ class PhotoViewer:
             print("Veuillez patienter pendant le calcul de la courbe...")
             
             # Ajouter la courbe correspondante dans le graphique
-            hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text)
+            hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text, self.raw_height, self.raw_width)
             self.__graph.add_graph(hddata)
             print(" : Courbe ajoutée pour le marqueur ", tag_maker_text)
             
@@ -310,9 +310,9 @@ class HDGraphWindow:
         
     def add_graph(self, hddata: hd.HDData):
         # On ajoute la courbe au graphique
-        line, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-', label=hddata.getTag())
-        line2, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-', label=hddata.getTag())
-        line3, = self.ax.plot(hddata.getListExpo(), hddata.getListPixValues(), 'o-', label=hddata.getTag())
+        line, = self.ax.plot(hddata.getListExpo(), hddata.getG()[:0:0], 'o-', label=hddata.getTag())
+        line2, = self.ax.plot(hddata.getListExpo(), hddata.getG()[:0:1], 'o-', label=hddata.getTag())
+        line3, = self.ax.plot(hddata.getListExpo(), hddata.getG()[:0:2], 'o-', label=hddata.getTag())
         # On stocke la courbe dans le dictionnaire pour pouvoir la supprimer plus tard
         self.__list_pairs[hddata.getTag()] = line
         # Mise à jour de la légende
