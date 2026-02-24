@@ -87,7 +87,7 @@ def create_sam_predictor(version):
 
 def load_image(image_path, brightness=1.0):
     # Cas RAW
-    if isinstance(image_path, str) and image_path.lower().endswith(".nef"):
+    if isinstance(image_path, str) and image_path.lower().endswith(('.nef', '.arw', '.cr2', '.dng', '.rw2', '.orf', '.raf')):
         with rawpy.imread(image_path) as raw:
             image = raw.postprocess(
                 use_camera_wb=False,
@@ -258,7 +258,7 @@ def make_just_one_mask(image_path, version = "small"):
 
     predictor, device = create_sam_predictor(version)
 
-    image = load_image(image_path, brightness=1.0)
+    image = load_image(image_path, brightness=3.0)
     predictor.set_image(image)
     input_point, input_label = get_input_points(image)
 
@@ -276,6 +276,17 @@ def make_just_one_mask(image_path, version = "small"):
     if num_labels > 1:
         largest_label = 1 + np.argmax([np.sum(labels_im == i) for i in range(1, num_labels)])
         mask = (labels_im == largest_label).astype(np.uint8)
+
+    # Trouver les contours
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Créer un masque vide
+    filled_mask = np.zeros_like(mask)
+
+    # Remplir le contour principal
+    cv2.drawContours(filled_mask, contours, -1, 1, thickness=cv2.FILLED)
+
+    mask = filled_mask
     
     # export mask as png
     mask_save_path = os.path.join(os.path.dirname(image_path), 'mask.png')
@@ -294,5 +305,4 @@ if __name__ == "__main__":
 
     make_mask(folder, taille, sam_version)
 
-    
     print("Done.\n")
