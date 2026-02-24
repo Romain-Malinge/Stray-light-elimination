@@ -4,6 +4,9 @@ import rawpy
 import numpy as np
 import sys
 import cv2
+import matplotlib.pyplot as plt
+from scipy.sparse import lil_matrix
+from scipy.sparse.linalg import lsqr
 
 def afficher_progression(actuel, total, nom_fichier=""):
         """Affiche une barre de progression simple dans le terminal."""
@@ -90,61 +93,50 @@ class HDData:
         # On s'assure que les poids sont de type float pour les calculs
         return w.astype(np.float32)
             
-    def gsolve(self, B, l):
+    def gsolve(self, Z, B, l, n = 16384):
         """
         Z : Valeurs de pixels (i pixels, j images) - Array 2D
         B : Log des temps d'exposition log(delta t) - Array 1D
         l : Lambda (facteur de lissage)
         w : Fonction de pondération (Array de taille n)
         """
-        n = 256 # Passer à 16384 pour du RAW 14-bits
-        files = sorted([
-            os.path.join(self.__folder_path, f)
-            for f in os.listdir(self.__folder_path)
-            if f.lower().endswith(".arw")
-        ])
-        num_pixels = self.__height * self.__width
-        num_images = len(files)
+
+        num_pixels = Z.shape[0]
+        num_images = Z.shape[1]
         
         # Taille de la matrice A : (N*P + 1 + (N-2)) lignes , (N + P) colonnes
-        # N = niveaux de gris, P = nombre de pixels échantillonnés
-        A = np.zeros((num_pixels * num_images + n + 1, n + num_pixels))
-        b = np.zeros((A.shape[0], 1))
+        A = lil_matrix((num_pixels * num_images + n + 1, n + num_pixels))
+        b = np.zeros(A.shape[0])
         w = self.get_weighting_function()
-        
         k = 0
         
-        ## 1. Équations de correspondance des données (Data-fitting)
-        for j, path in enumerate(files):
-            with rawpy.imread(path) as raw:
-                for i in range(num_pixels):  
-                        
-                    z_val = raw.raw_image[i % self.__width, i // self.__height]
-                    wij = w[z_val]
-                    A[k, z_val] = wij
-                    A[k, n + i] = -wij
-                    b[k, 0] = wij * B[j]
-                    k += 1
-                
-        ## 2. Fixer le milieu de la courbe à 0 (Ancrage de l'exposition)
-        # Dans le papier, g(128) = 0. En Python (index 0), c'est 127
-        A[k, 128] = 1
+        # Data-fitting
+        for i in range(num_pixels):  
+            for j in range(num_images):        
+                z_val = int(Z[i, j])
+                wij = w[z_val]  
+                A[k, z_val] = wij
+                A[k, n + i] = -wij
+                b[k] = wij * B[j]
+                k += 1
+                 
+        # Mettre le milieu de la courbe à 0
+        A[k, n // 2] = 1
         k += 1
         
-        ## 3. Équations de lissage (Smoothness)
-        # Assure que la courbe est "belle" (dérivée seconde faible)
+        # Équations de lissage
         for i in range(n - 2):
             A[k, i] = l * w[i + 1]
             A[k, i + 1] = -2 * l * w[i + 1]
             A[k, i + 2] = l * w[i + 1]
             k += 1
-            
-        ## 4. Résolution du système par moindres carrés (SVD interne)
-        # En Matlab 'A\b', en Python 'np.linalg.lstsq'
-        x, residuals, rank, s = np.linalg.lstsq(A, b, rcond=None)
         
-        g = x[0:n].flatten()
-        lE = x[n:].flatten()
+        # Résolution du système par SVD 
+        A_csr = A.tocsr()
+        x, istop, itn, normr = lsqr(A_csr, b)[:4]
+
+        g = x[0:n]
+        lE = x[n:]
     
         return g, lE
             
@@ -167,7 +159,12 @@ class HDData:
         ])
         
         nb_files = len(files)
-
+        k = 0
+        num_samples = 100
+        Z = np.zeros((num_samples, nb_files))
+        y_coords = np.random.randint(0, self.__height, num_samples)
+        x_coords = np.random.randint(0, self.__width, num_samples)
+        
         for i, path in enumerate(files):
             
             afficher_progression(i+1, nb_files, nom_fichier=os.path.basename(path))
@@ -175,15 +172,30 @@ class HDData:
             exposure_time = self.extract_parameters(path)
             exposures.append(np.log10(exposure_time))
             
-        g, lE = self.gsolve(B=exposures, l=100)
+            with rawpy.imread(path) as raw:
+                Z[:, k] = raw.raw_image[y_coords, x_coords]
+                k += 1 
+        
+        g, lE = self.gsolve(Z, B=exposures, l=100)
+        pixel_values = np.arange(len(g)) 
+        
+
+        plt.figure(figsize=(10, 6))
+
+        # On trace g en X et les pixels en Y pour voir la courbe de réponse
+        plt.plot(g, pixel_values, color='green', linewidth=2)
+
+        plt.title("Courbe de Réponse du Capteur (OECF) - Méthode Debevec")
+        plt.xlabel("Log Exposure (ln E * dt)")
+        plt.ylabel("Valeur Numérique du Pixel (14-bit DN)")
+        plt.grid(True, which="both", ls="-", alpha=0.5)
+
+        plt.show()
         
         return g, lE, exposures
        
     def getG(self):
         return self.__g
-    
-    def getLE(self):
-        return self.__lE
 
     def getTag(self):
         return self.__tag

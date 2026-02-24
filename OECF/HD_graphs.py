@@ -83,7 +83,7 @@ class PhotoViewer:
             with rawpy.imread(path) as raw:
                 
                 # Dimensions de l'image RAW et RGB (post-processée)
-                self.raw_height, self.raw_width = raw.raw_image.shape
+                self.raw_height, self.raw_width = raw.raw_image_visible.shape
                 self.rgb_width, self.rgb_height = raw.sizes.width, raw.sizes.height
                 
                 # Les marges du capteur (zones non actives)
@@ -217,11 +217,8 @@ class PhotoViewer:
             
             # Ajouter la courbe correspondante dans le graphique
             hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text, self.raw_height, self.raw_width)
-            self.__graph.add_graph(hddata)
+            #self.__graph.add_graph(hddata)
             print(" : Courbe ajoutée pour le marqueur ", tag_maker_text)
-            
-            # Vérification du clic avec la loupe
-            self.verifier_clic_raw(x_real, y_real)
 
     def next_image(self):
         if self.index < len(self.files) - 1:
@@ -232,37 +229,6 @@ class PhotoViewer:
         if self.index > 0:
             self.index -= 1
             self.show_image()
-   
-    def verifier_clic_raw(self, x_raw, y_raw):
-        # 1. Préparation du crop
-        taille_loupe = 60 
-        box = (x_raw - taille_loupe, y_raw - taille_loupe, 
-                x_raw + taille_loupe, y_raw + taille_loupe)
-        crop_raw = self.__image_raw_full.crop(box)
-        
-        # 2. Agrandissement
-        taille_image = 400
-        crop_visible = crop_raw.resize((taille_image, taille_image), Image.Resampling.NEAREST)
-        
-        # 3. Création de la fenêtre
-        self.fenetre_zoom = tk.Toplevel()
-        self.fenetre_zoom.title(f"Vérification RAW - ({x_raw}, {y_raw})")
-        
-        # 4. Utilisation d'un Canvas pour dessiner par-dessus
-        canvas = tk.Canvas(self.fenetre_zoom, width=taille_image, height=taille_image)
-        canvas.pack()
-        
-        # On garde la référence de l'image pour éviter le garbage collection
-        self.img_tk_zoom = ImageTk.PhotoImage(crop_visible)
-        canvas.create_image(0, 0, anchor="nw", image=self.img_tk_zoom)
-        
-        # 5. AJOUT DU PIXEL ROUGE (Cible)
-        # On dessine un petit carré de 4x4 pixels au centre exact
-        centre = taille_image / 2
-        r = 2 # rayon du marqueur
-        canvas.create_rectangle(centre - r, centre - r, centre + r, centre + r, 
-                                fill="red", outline="white")
-        tk.Label(self.fenetre_zoom, text=f"Zoom RAW à ({x_raw}, {y_raw})").pack()
     
 class HDGraphWindow:
     
@@ -310,9 +276,7 @@ class HDGraphWindow:
         
     def add_graph(self, hddata: hd.HDData):
         # On ajoute la courbe au graphique
-        line, = self.ax.plot(hddata.getListExpo(), hddata.getG()[:0:0], 'o-', label=hddata.getTag())
-        line2, = self.ax.plot(hddata.getListExpo(), hddata.getG()[:0:1], 'o-', label=hddata.getTag())
-        line3, = self.ax.plot(hddata.getListExpo(), hddata.getG()[:0:2], 'o-', label=hddata.getTag())
+        line, = self.ax.plot(hddata.getListExpo(), hddata.getG(), 'o-', label=hddata.getTag())
         # On stocke la courbe dans le dictionnaire pour pouvoir la supprimer plus tard
         self.__list_pairs[hddata.getTag()] = line
         # Mise à jour de la légende
