@@ -24,7 +24,7 @@ def afficher_progression(actuel, total, nom_fichier=""):
 
 class HDData:
     
-    def __init__(self, folder_path, x, y, tag, height, width):
+    def __init__(self, folder_path, x, y, tag, height, width, bits):
         self.__folder_path = folder_path
         self.__x = x
         self.__y = y
@@ -34,6 +34,7 @@ class HDData:
         self.__ouverture = -0.1
         self.__iso = -1
         self.__focale = -0.1
+        self.__bit_per_sample = bits
         
         self.__g, self.__lE, self.__exposures = self.extract_hd_data()
     
@@ -79,10 +80,8 @@ class HDData:
             else:
                 return float(str(exposure))
             
-    def get_weighting_function(self, n=16384):
-        """
-        n : nombre de niveaux (256 pour 8-bit, 16384 pour 14-bit)
-        """
+    def get_weighting_function(self, n):
+        
         z_min = 0
         z_max = n - 1
         z_mid = (z_min + z_max) / 2
@@ -93,13 +92,11 @@ class HDData:
         # On s'assure que les poids sont de type float pour les calculs
         return w.astype(np.float32)
             
-    def gsolve(self, Z, B, l, n = 16384):
-        """
-        Z : Valeurs de pixels (i pixels, j images) - Array 2D
-        B : Log des temps d'exposition log(delta t) - Array 1D
-        l : Lambda (facteur de lissage)
-        w : Fonction de pondération (Array de taille n)
-        """
+    def gsolve(self, Z, B, l):
+        # Z : Valeurs de pixels (i pixels, j images) - Array 2D
+        # B : Log des temps d'exposition log(delta t) - Array 1D
+        # l : Lambda (facteur de lissage)
+        n = self.__bit_per_sample
 
         num_pixels = Z.shape[0]
         num_images = Z.shape[1]
@@ -107,7 +104,7 @@ class HDData:
         # Taille de la matrice A : (N*P + 1 + (N-2)) lignes , (N + P) colonnes
         A = lil_matrix((num_pixels * num_images + n + 1, n + num_pixels))
         b = np.zeros(A.shape[0])
-        w = self.get_weighting_function()
+        w = self.get_weighting_function(n)
         k = 0
         
         # Data-fitting
@@ -174,11 +171,11 @@ class HDData:
             
             with rawpy.imread(path) as raw:
                 Z[:, k] = raw.raw_image[y_coords, x_coords]
-                k += 1 
+                k += 1
         
         g, lE = self.gsolve(Z, B=exposures, l=100)
         pixel_values = np.arange(len(g)) 
-        
+        print(g)
 
         plt.figure(figsize=(10, 6))
 

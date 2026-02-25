@@ -86,6 +86,8 @@ class PhotoViewer:
                 self.raw_height, self.raw_width = raw.raw_image_visible.shape
                 self.rgb_width, self.rgb_height = raw.sizes.width, raw.sizes.height
                 
+                self.__bits = raw.white_level + 1
+                
                 # Les marges du capteur (zones non actives)
                 self.offset_top = raw.sizes.top_margin
                 self.offset_left = raw.sizes.left_margin
@@ -216,7 +218,7 @@ class PhotoViewer:
             print("Veuillez patienter pendant le calcul de la courbe...")
             
             # Ajouter la courbe correspondante dans le graphique
-            hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text, self.raw_height, self.raw_width)
+            hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text, self.raw_height, self.raw_width, self.__bits)
             #self.__graph.add_graph(hddata)
             print(" : Courbe ajoutée pour le marqueur ", tag_maker_text)
 
