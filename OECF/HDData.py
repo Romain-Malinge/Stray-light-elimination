@@ -6,7 +6,8 @@ import sys
 import cv2
 import matplotlib.pyplot as plt
 from scipy.sparse import lil_matrix
-from scipy.sparse.linalg import lsqr
+from scipy.sparse.linalg import lsqr, spsolve, svds
+import math
 
 def afficher_progression(actuel, total, nom_fichier=""):
         """Affiche une barre de progression simple dans le terminal."""
@@ -24,11 +25,8 @@ def afficher_progression(actuel, total, nom_fichier=""):
 
 class HDData:
     
-    def __init__(self, folder_path, x, y, tag, height, width, bits):
+    def __init__(self, folder_path, height, width, bits):
         self.__folder_path = folder_path
-        self.__x = x
-        self.__y = y
-        self.__tag = tag
         self.__height = height
         self.__width = width
         self.__ouverture = -0.1
@@ -80,61 +78,48 @@ class HDData:
             else:
                 return float(str(exposure))
             
-    def get_weighting_function(self, n):
-        
-        z_min = 0
-        z_max = n - 1
-        z_mid = (z_min + z_max) / 2
-        
-        # Création du tableau de poids
-        w = np.array([z - z_min if z <= z_mid else z_max - z for z in range(n)])
-        
-        # On s'assure que les poids sont de type float pour les calculs
-        return w.astype(np.float32)
-            
-    def gsolve(self, Z, B, l):
+    def gsolve(self, Z, B, l, w):
         # Z : Valeurs de pixels (i pixels, j images) - Array 2D
         # B : Log des temps d'exposition log(delta t) - Array 1D
         # l : Lambda (facteur de lissage)
         n = self.__bit_per_sample
-
-        num_pixels = Z.shape[0]
-        num_images = Z.shape[1]
         
         # Taille de la matrice A : (N*P + 1 + (N-2)) lignes , (N + P) colonnes
-        A = lil_matrix((num_pixels * num_images + n + 1, n + num_pixels))
-        b = np.zeros(A.shape[0])
-        w = self.get_weighting_function(n)
-        k = 0
+        Z1 = np.size(Z, 0)
+        Z2 = np.size(Z, 1)
+        A = np.zeros(shape=(Z1 * Z2 + n + 1, n + Z1), dtype=np.float32)
+        b = np.zeros(shape=(np.size(A, 0), 1), dtype=np.float32)
         
-        # Data-fitting
-        for i in range(num_pixels):  
-            for j in range(num_images):        
-                z_val = int(Z[i, j])
-                wij = w[z_val]  
-                A[k, z_val] = wij
-                A[k, n + i] = -wij
+        
+        k = 0
+        for i in range(Z1):
+            for j in range(Z2):
+                z = int(Z[i][j])
+                wij = w[z]
+                A[k,z] = wij
+                A[k, n+i] = -wij
                 b[k] = wij * B[j]
                 k += 1
-                 
-        # Mettre le milieu de la courbe à 0
-        A[k, n // 2] = 1
+        
+        # Fix the curve by setting its middle value to 0
+        A[k, n//2] = 1
         k += 1
-        
-        # Équations de lissage
-        for i in range(n - 2):
-            A[k, i] = l * w[i + 1]
-            A[k, i + 1] = -2 * l * w[i + 1]
-            A[k, i + 2] = l * w[i + 1]
-            k += 1
-        
-        # Résolution du système par SVD 
-        A_csr = A.tocsr()
-        x, istop, itn, normr = lsqr(A_csr, b)[:4]
 
-        g = x[0:n]
+        # Include the smoothness equations
+        for i in range(n-1):
+            A[k, i]   =    l*w[i+1]
+            A[k, i+1] = -2*l*w[i+1]
+            A[k, i+2] =    l*w[i+1]
+            k += 1
+
+        print(np.shape(A))
+        print(np.shape(b))
+        
+        # Solve the system using SVD
+        x = np.linalg.lstsq(A, b)[0]
+        g = x[:n]
         lE = x[n:]
-    
+
         return g, lE
             
     def extract_hd_data(self):
@@ -156,8 +141,7 @@ class HDData:
         ])
         
         nb_files = len(files)
-        k = 0
-        num_samples = 100
+        num_samples = 50
         Z = np.zeros((num_samples, nb_files))
         y_coords = np.random.randint(0, self.__height, num_samples)
         x_coords = np.random.randint(0, self.__width, num_samples)
@@ -167,13 +151,20 @@ class HDData:
             afficher_progression(i+1, nb_files, nom_fichier=os.path.basename(path))
 
             exposure_time = self.extract_parameters(path)
-            exposures.append(np.log10(exposure_time))
+            exposures.append(1/exposure_time)
             
             with rawpy.imread(path) as raw:
-                Z[:, k] = raw.raw_image[y_coords, x_coords]
-                k += 1
+                Z[:, i] = raw.raw_image[y_coords, x_coords]
         
-        g, lE = self.gsolve(Z, B=exposures, l=100)
+        print(exposures)
+        print(Z)
+        exposures = np.array(exposures, dtype=np.float32)
+        w = [z if z <= 0.5*(self.__bit_per_sample - 1) else (self.__bit_per_sample - 1)-z for z in range(self.__bit_per_sample)]
+        B = [math.log(e,2) for e in exposures]
+        l = 10
+        
+        g, lE = self.gsolve(Z, B, l, w)
+        
         pixel_values = np.arange(len(g)) 
         print(g)
 

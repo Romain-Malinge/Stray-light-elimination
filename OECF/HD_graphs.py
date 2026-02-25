@@ -4,7 +4,6 @@ import numpy as np
 from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import filedialog
-import Markers as mk
 import HDData as hd
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import matplotlib.pyplot as plt
@@ -17,8 +16,6 @@ SUPPORTED_EXTENSIONS = (".arw", ".jpg", ".jpeg", ".png")
 class PhotoViewer:
     
     def __init__(self, root, folder_path):
-        self.__ids_markers = 0
-        self.__rad_marker_hit_box = 20
         self.__id_im = 0;
         self.root = root
         self.root.title("Liseuse Photo")
@@ -62,12 +59,9 @@ class PhotoViewer:
             pady=8
         ).pack(side="right", padx=10, pady=10)
 
-        self.canvas.bind("<Button-1>", self.manip_marker)
+        self.canvas.bind("<Button-1>", self.calcul_oecf)
 
-        self.markers = []
         self.show_image()
-        
-        self.__graph = HDGraphWindow(self.root)
 
     def load_images(self, folder):
         return [
@@ -153,74 +147,10 @@ class PhotoViewer:
 
         self.root.title(f"{os.path.basename(path)}")
 
-    def manip_marker(self, event):
-        
-        # Coordonnées du clic dans le canevas
-        x_display = event.x
-        y_display = event.y
+    def calcul_oecf(self, event):
 
-        # Conversion coordonnées affichage en coordonnées originales
-        scale_x = self.rgb_width / self.display_width
-        scale_y = self.rgb_height / self.display_height
-        
-        x_real = int(x_display * scale_x + self.offset_left)
-        y_real = int(y_display * scale_y + self.offset_top)
-        
-        print(f"Clic écran: ({x_display}, {y_display}) -> Coordonnée RAW: ({x_real}, {y_real})")
-        
-        # Vérifier si un marqueur existe déjà à proximité
-        already_exist = False
-        marker = None
-        for marker in self.markers:
-            posX = marker.getCordX()
-            posY = marker.getCordY()
-            
-            if (abs(posX - x_real) <= self.__rad_marker_hit_box) and (abs(posY - y_real) <= self.__rad_marker_hit_box):
-                already_exist = True
-                break
-           
-        # Si un marqueur existe déjà à proximité, le supprimer 
-        if already_exist :
-            self.markers.remove(marker)
-            self.canvas.delete(marker.getTag())
-            print(f"Suppresion du marqeur d'id : {marker.getTag()}")
-            
-            # Supprimer la courbe correspondante dans le graphique
-            self.__graph.remove_graph(marker.getTag())
-            
-        # Sinon, en créer un nouveau
-        else:
-            self.__ids_markers += 1
-            tag_maker_text = "M_" + str(self.__ids_markers)
-            
-            # Dessiner un petit cercle rouge
-            r = 3
-            self.canvas.create_oval(
-                x_display - r, y_display - r,
-                x_display + r, y_display + r,
-                fill="red",
-                tags=tag_maker_text
-            )
-            
-            self.canvas.create_text(
-                x_display,
-                y_display - 12,
-                text=tag_maker_text,
-                fill="red",
-                font=("Arial", 10, "bold"),
-                tags=tag_maker_text
-            )
-
-            newMark = mk.Marker(x_real, y_real, tag_maker_text)
-            self.markers.append(newMark)
-            
-            print(f"Ajout du marqueur d'ID {tag_maker_text}")
-            print("Veuillez patienter pendant le calcul de la courbe...")
-            
-            # Ajouter la courbe correspondante dans le graphique
-            hddata = hd.HDData(self.folder_path, x_real, y_real, tag_maker_text, self.raw_height, self.raw_width, self.__bits)
-            #self.__graph.add_graph(hddata)
-            print(" : Courbe ajoutée pour le marqueur ", tag_maker_text)
+        print("Veuillez patienter pendant le calcul de la courbe...")
+        hd.HDData(self.folder_path, self.raw_height, self.raw_width, self.__bits)
 
     def next_image(self):
         if self.index < len(self.files) - 1:
@@ -231,79 +161,6 @@ class PhotoViewer:
         if self.index > 0:
             self.index -= 1
             self.show_image()
-    
-class HDGraphWindow:
-    
-    def __init__(self, parent):
-
-        # Nouvelle fenêtre
-        self.window = tk.Toplevel(parent)
-        self.window.title("Courbe Opto-Electronic Conversion Function (OECF)")
-        self.window.geometry("800x600")
-        
-        # Dictionnaire pour stocker les courbes associées à chaque marqueur
-        self.__list_pairs = {}
-
-        # Création figure matplotlib
-        self.fig, self.ax = plt.subplots(figsize=(7, 5))
-
-        # Configuration des axes
-        self.ax.set_title("Courbe OECF")
-        self.ax.set_xlabel("Temps d'exposition (s)")
-        self.ax.set_ylabel("Valeur Numérique RAW")
-        
-        self.ax.set_ylim(1, 20000)
-        self.ax.set_xscale('log', base=10)
-        self.ax.set_yscale('log', base=10)
-        
-        self.ax.yaxis.set_major_formatter(ticker.ScalarFormatter())
-        self.ax.yaxis.get_major_formatter().set_scientific(False)
-        
-        def format_func(value, tick_number):
-            if value >= 1:
-                return f"{value:.1f}s"
-            else:
-                return f"1/{int(round(1/value))}"
-        
-        self.ax.xaxis.set_major_formatter(ticker.FuncFormatter(format_func))
-        stops = [1/8000, 1/2000, 1/500, 1/125, 1/30, 1/8, 0.5, 2, 4]
-        self.ax.set_xticks(stops)
-
-        self.ax.grid(True, which="both", linestyle='--', alpha=0.5)
-
-        # Intégration dans Tkinter
-        self.canvas = FigureCanvasTkAgg(self.fig, master=self.window)
-        self.canvas.draw()
-        self.canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        
-    def add_graph(self, hddata: hd.HDData):
-        # On ajoute la courbe au graphique
-        line, = self.ax.plot(hddata.getListExpo(), hddata.getG(), 'o-', label=hddata.getTag())
-        # On stocke la courbe dans le dictionnaire pour pouvoir la supprimer plus tard
-        self.__list_pairs[hddata.getTag()] = line
-        # Mise à jour de la légende
-        self.ax.legend(
-            loc="best",
-            fontsize=10,
-            frameon=True)
-        # Mise à jour de l'affichage
-        self.canvas.draw()
-    
-    def remove_graph(self, tag):
-        if tag in self.__list_pairs:
-            # Enlever la courbe du graphique
-            self.__list_pairs[tag].remove()
-            # Enlever la courbe de la liste
-            del self.__list_pairs[tag]
-            # Mettre à jour la légende
-            if self.__list_pairs:
-                self.ax.legend(
-                loc="best",
-                fontsize=10,
-                frameon=True)
-            # Mise à jour de l'affichage
-            self.canvas.draw()
-
 
 ## Boucle principale
 def main():
