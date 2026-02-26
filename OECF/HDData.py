@@ -5,8 +5,8 @@ import numpy as np
 import sys
 import cv2
 import matplotlib.pyplot as plt
-from scipy.sparse import lil_matrix
-from scipy.sparse.linalg import lsqr, spsolve, svds
+from scipy.sparse import csr_matrix, lil_matrix
+from scipy.sparse.linalg import lsqr, spsolve
 import math
 
 def afficher_progression(actuel, total, nom_fichier=""):
@@ -73,8 +73,8 @@ class HDData:
 
             # ex: 1/8000
             if "/" in str(exposure):
-                num, den = map(float, str(exposure).split("/"))
-                return num / den
+                num, den = str(exposure).split("/")
+                return int(num) / int(den)
             else:
                 return float(str(exposure))
             
@@ -82,22 +82,22 @@ class HDData:
         # Z : Valeurs de pixels (i pixels, j images) - Array 2D
         # B : Log des temps d'exposition log(delta t) - Array 1D
         # l : Lambda (facteur de lissage)
-        n = self.__bit_per_sample
+        n = self.__bit_per_sample # 16384
         
-        # Taille de la matrice A : (N*P + 1 + (N-2)) lignes , (N + P) colonnes
-        Z1 = np.size(Z, 0)
-        Z2 = np.size(Z, 1)
-        A = np.zeros(shape=(Z1 * Z2 + n + 1, n + Z1), dtype=np.float32)
-        b = np.zeros(shape=(np.size(A, 0), 1), dtype=np.float32)
+        # Taille de la matrice A 
+        Z1 = np.size(Z, 0) # num_samples
+        Z2 = np.size(Z, 1) # nb_files
+        A = lil_matrix((Z1 * Z2 + n + 1, n + Z1), dtype=np.float32)
+        b = np.zeros(np.size(A, 0), dtype=np.float32)
         
         
         k = 0
         for i in range(Z1):
             for j in range(Z2):
-                z = int(Z[i][j])
+                z = int(Z[i, j])
                 wij = w[z]
-                A[k,z] = wij
-                A[k, n+i] = -wij
+                A[k, z] = wij
+                A[k, n + i] = -wij
                 b[k] = wij * B[j]
                 k += 1
         
@@ -111,12 +111,15 @@ class HDData:
             A[k, i+1] = -2*l*w[i+1]
             A[k, i+2] =    l*w[i+1]
             k += 1
-
+        
         print(np.shape(A))
         print(np.shape(b))
         
         # Solve the system using SVD
-        x = np.linalg.lstsq(A, b)[0]
+        A = A.tocsr()
+        # pseudoA = np.linalg.pinv(A.toarray())
+        x, istop, itn = lsqr(A, b)[:3]
+        print (istop, itn)
         g = x[:n]
         lE = x[n:]
 
@@ -145,13 +148,15 @@ class HDData:
         Z = np.zeros((num_samples, nb_files))
         y_coords = np.random.randint(0, self.__height, num_samples)
         x_coords = np.random.randint(0, self.__width, num_samples)
+        print(self.__height)
+        print(self.__width)
         
         for i, path in enumerate(files):
             
             afficher_progression(i+1, nb_files, nom_fichier=os.path.basename(path))
 
-            exposure_time = self.extract_parameters(path)
-            exposures.append(1/exposure_time)
+            exposure_time = self.extract_parameters(path) # en secondes
+            exposures.append(1/exposure_time) # 
             
             with rawpy.imread(path) as raw:
                 Z[:, i] = raw.raw_image[y_coords, x_coords]
