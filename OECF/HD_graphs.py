@@ -5,10 +5,6 @@ from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import filedialog
 import HDData as hd
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import time
 
 SUPPORTED_EXTENSIONS = (".arw", ".jpg", ".jpeg", ".png")
 

@@ -3,7 +3,6 @@ import os
 import rawpy
 import numpy as np
 import sys
-import cv2
 import matplotlib.pyplot as plt
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import lsqr, spsolve
@@ -135,44 +134,62 @@ class HDData:
             pixel_values  : liste valeurs RAW correspondantes
         """
 
-        exposures = []
-        
         files = sorted([
             os.path.join(self.__folder_path, f)
             for f in os.listdir(self.__folder_path)
             if f.lower().endswith(".arw")
         ])
         
+        # Variables de stockage de données
+        exposures = []
         nb_files = len(files)
         num_samples = 50
         Z = np.zeros((num_samples, nb_files))
-        y_coords = np.random.randint(0, self.__height, num_samples)
-        x_coords = np.random.randint(0, self.__width, num_samples)
-        print(self.__height)
-        print(self.__width)
         
-        for i, path in enumerate(files):
+        # Chemin d'accés au fichier de stockage de z et des expositions
+        Z_file_name = f"Z_{num_samples}_{nb_files}_.txt" 
+        Z_file_path = os.path.join("data", Z_file_name)
+        
+        # On regarde si le fichier Z existe, dans ce cas on le charge
+        if os.path.isfile(Z_file_path):
+            Z, exposures = self.charger_matrice_Z(Z_file_path)
             
-            afficher_progression(i+1, nb_files, nom_fichier=os.path.basename(path))
+        # Il n'existe pas, on le crée à partir des images RAW
+        else:
+            
+            # On séléctionne aléatoirement num_samples pixels dans l'image (même position pour toutes les images)
+            y_coords = np.random.randint(0, self.__height, num_samples)
+            x_coords = np.random.randint(0, self.__width, num_samples)
+            
+            for i, path in enumerate(files):
+                
+                afficher_progression(i+1, nb_files, nom_fichier=os.path.basename(path))
 
-            exposure_time = self.extract_parameters(path) # en secondes
-            exposures.append(1/exposure_time) # 
+                exposure_time = self.extract_parameters(path) # en secondes
+                exposures.append(1/exposure_time) # en fréquence
+                
+                with rawpy.imread(path) as raw:
+                    Z[:, i] = raw.raw_image[y_coords, x_coords]
             
-            with rawpy.imread(path) as raw:
-                Z[:, i] = raw.raw_image[y_coords, x_coords]
+            # Stockage de Z et les expositions
+            self.stocker_matrice_Z(Z, exposures, Z_file_path)
         
         print(exposures)
         print(Z)
+        
+        # Dernier paramètrage des variables pour Debevec
         exposures = np.array(exposures, dtype=np.float32)
         w = [z if z <= 0.5*(self.__bit_per_sample - 1) else (self.__bit_per_sample - 1)-z for z in range(self.__bit_per_sample)]
-        B = [math.log(e,2) for e in exposures]
+        B = [np.log(e) for e in exposures]
         l = 10
         
+        # Cacul de g et lE avec la méthode de Debevec
+        print("Calcul de la courbe de réponse (Debevec)...")
         g, lE = self.gsolve(Z, B, l, w)
         
         pixel_values = np.arange(len(g)) 
         print(g)
-
+        g = [np.log10(np.exp(i)) for i in g]
         plt.figure(figsize=(10, 6))
 
         # On trace g en X et les pixels en Y pour voir la courbe de réponse
@@ -186,6 +203,25 @@ class HDData:
         plt.show()
         
         return g, lE, exposures
+    
+    def stocker_matrice_Z(self, Z, exposures, filename):
+        try:
+            # fmt="%.4f" permet de garder 4 décimales (suffisant pour du RAW)
+            np.savetxt(filename, Z, fmt="%d", header=f"Matrice Z ({Z.shape[0]}x{Z.shape[1]})")
+            np.savetxt(filename[:-4] + "_exposures.txt", exposures, fmt="%.10f", header=f"Exposition en fréquence par image")
+            print(f"Matrice Z stockée avec succès dans {filename}")
+        except Exception as e:
+            print(f"Erreur lors du stockage : {e}")
+
+    def charger_matrice_Z(self, filename):
+        try:
+            Z = np.loadtxt(filename)
+            exposures = np.loadtxt(filename[:-4] + "_exposures.txt")
+            print(f"Matrice Z chargée avec succès. Taille : {Z.shape}")
+            return Z, exposures
+        except Exception as e:
+            print(f"Erreur lors du chargement : {e}")
+            return None
        
     def getG(self):
         return self.__g
