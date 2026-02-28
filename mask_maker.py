@@ -90,9 +90,6 @@ def load_image(image_path, brightness=1.0):
     if isinstance(image_path, str) and image_path.lower().endswith(('.nef', '.arw', '.cr2', '.dng', '.rw2', '.orf', '.raf')):
         with rawpy.imread(image_path) as raw:
             image = raw.postprocess(
-                use_camera_wb=False,
-                no_auto_bright=True,
-                gamma=(1, 1),
                 bright=brightness,
                 output_bps=8
             )
@@ -119,17 +116,11 @@ def get_input_points(img, max_size=1000):
 
             input_points.append([x, y])
             input_labels.append(1)
-
-            cv2.circle(display_img, (x, y), 4, (0, 255, 0), -1)
-
-        elif event == cv2.EVENT_RBUTTONDOWN:
-            input_points.append([x, y])
-            input_labels.append(0)
-
-            cv2.circle(display_img, (x, y), 4, (0, 0, 255), -1)
+            cv2.circle(display_img, (x, y), 5, (0, 255, 0), -1)
 
     cv2.namedWindow("Select points", cv2.WINDOW_NORMAL)
     cv2.imshow("Select points", display_img)
+
     # Redimensionner la fenêtre si l'image est trop grande
     H, W = img.shape[:2]
     if H > max_size or W > max_size:
@@ -145,14 +136,10 @@ def get_input_points(img, max_size=1000):
         cv2.imshow("Select points", display_img)
         key = cv2.waitKey(1) & 0xFF
 
-        # Entrée = validation
+        # terminer la selection après un enter
         if key == 13:
             break
 
-        # r = réinitialiser les points
-        if key == ord('r'):
-            input_points = []
-            input_labels = []
 
     cv2.destroyAllWindows()
 
@@ -212,7 +199,7 @@ def make_mask(folder_path, taille, version = "small"):
         max_y = min(H, min_y + w)
     
     # Ajouter une marge autour du masque
-    margin = 10  # Ajuster la valeur de la marge selon vos besoins
+    margin = 50  # Ajuster la valeur de la marge selon vos besoins
     min_x = max(0, min_x - margin)
     max_x = min(W, max_x + margin)
     min_y = max(0, min_y - margin)
@@ -258,7 +245,8 @@ def make_just_one_mask(image_path, version = "small"):
 
     predictor, device = create_sam_predictor(version)
 
-    image = load_image(image_path, brightness=3.0)
+    image = load_image(image_path, brightness=2.0)
+    # si l'image
     predictor.set_image(image)
     input_point, input_label = get_input_points(image)
 
