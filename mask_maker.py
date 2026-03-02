@@ -260,10 +260,10 @@ def make_just_one_mask(image_path, version = "small"):
     mask = filled_mask
     
     # export mask as png
-    mask_save_path = os.path.join(os.path.dirname(image_path), '../mask')
+    mask_save_path = os.path.join(os.path.dirname(image_path), '../Mask')
     os.makedirs(mask_save_path, exist_ok=True)
 
-    mask_file_name = "0.png"
+    mask_file_name = "00.png"
     mask_save_path = os.path.join(mask_save_path, mask_file_name)
     Image.fromarray((mask * 255).astype(np.uint8), mode='L').save(mask_save_path)
     print(f"Mask saved to {mask_save_path}")
