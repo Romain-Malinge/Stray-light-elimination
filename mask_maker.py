@@ -101,56 +101,39 @@ def load_image(image_path, brightness=1.0):
     return image
 
 
-# Fonction pour obtenir les points d'entrée de l'utilisateur
 def get_input_points(img, max_size=1000):
-    input_points = []
-    input_labels = []
+    input_point = None
+    input_label = None
 
-    # Image affichée (redimensionnée si nécessaire)
     display_img = img.copy()
 
     def mouse_callback(event, x, y, flags, param):
-        nonlocal display_img
+        nonlocal input_point, input_label
 
         if event == cv2.EVENT_LBUTTONDOWN:
+            input_point = np.array([[x, y]])
+            input_label = np.array([1])
+            cv2.destroyAllWindows()  # fermeture immédiate
 
-            input_points.append([x, y])
-            input_labels.append(1)
-            cv2.circle(display_img, (x, y), 5, (0, 255, 0), -1)
+    cv2.namedWindow("Select point", cv2.WINDOW_NORMAL)
+    cv2.imshow("Select point", display_img)
 
-    cv2.namedWindow("Select points", cv2.WINDOW_NORMAL)
-    cv2.imshow("Select points", display_img)
-
-    # Redimensionner la fenêtre si l'image est trop grande
+    # Redimensionnement si nécessaire
     H, W = img.shape[:2]
     if H > max_size or W > max_size:
         scale = min(max_size / H, max_size / W)
         new_W = int(W * scale)
         new_H = int(H * scale)
-        cv2.resizeWindow("Select points", new_W, new_H)
+        cv2.resizeWindow("Select point", new_W, new_H)
     else:
-        cv2.resizeWindow("Select points", W, H)
-    cv2.setMouseCallback("Select points", mouse_callback)
+        cv2.resizeWindow("Select point", W, H)
 
-    while True:
-        cv2.imshow("Select points", display_img)
-        key = cv2.waitKey(1) & 0xFF
+    cv2.setMouseCallback("Select point", mouse_callback)
 
-        # terminer la selection après un enter
-        if key == 13:
-            break
+    # Attente bloquante jusqu'au clic (la fenêtre se ferme dans le callback)
+    cv2.waitKey(0)
 
-
-    cv2.destroyAllWindows()
-
-    if len(input_points) > 0:
-        input_points = np.array(input_points)
-        input_labels = np.array(input_labels)
-    else:
-        input_points = None
-        input_labels = None
-
-    return input_points, input_labels
+    return input_point, input_label
 
 
 # Fonction principale pour créer des masques pour toutes les images dans un dossier
@@ -277,7 +260,11 @@ def make_just_one_mask(image_path, version = "small"):
     mask = filled_mask
     
     # export mask as png
-    mask_save_path = os.path.join(os.path.dirname(image_path), 'mask.png')
+    mask_save_path = os.path.join(os.path.dirname(image_path), '../mask')
+    os.makedirs(mask_save_path, exist_ok=True)
+
+    mask_file_name = "0.png"
+    mask_save_path = os.path.join(mask_save_path, mask_file_name)
     Image.fromarray((mask * 255).astype(np.uint8), mode='L').save(mask_save_path)
     print(f"Mask saved to {mask_save_path}")
 
