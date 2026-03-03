@@ -3,3 +3,5 @@ Pillow
 matplotlib
 exifread
 numpy
+scipy
+matlabengine #(optionnel)

@@ -5,90 +5,107 @@ import numpy as np
 import sys
 import matplotlib.pyplot as plt
 from scipy.sparse import csr_matrix, lil_matrix
-from scipy.sparse.linalg import lsqr, spsolve
+from scipy.sparse.linalg import lsqr
+from PIL import Image
 import math
 
+# Import MATLAB if possible
+try:
+    import matlab.engine
+except ImportError:
+    print("Warning: matlab.engine not found. MATLAB mode will fail.")
+
 def afficher_progression(actuel, total, nom_fichier=""):
-        """Affiche une barre de progression simple dans le terminal."""
-        largeur_barre = 40
-        progression = actuel / total
-        nb_carres = int(largeur_barre * progression)
-        
-        # Création de la ligne : [████░░░░] 50% - fichier.arw
-        barre = "█" * nb_carres + "░" * (largeur_barre - nb_carres)
-        pourcentage = int(progression * 100)
-        
-        # \r ramène le curseur au début de la ligne
-        sys.stdout.write(f"\r|{barre}| {pourcentage}% - Analyse : {nom_fichier}")
-        sys.stdout.flush() # Force l'affichage immédiat
+    largeur_barre = 40
+    progression = actuel / total
+    nb_carres = int(largeur_barre * progression)
+    barre = "█" * nb_carres + "░" * (largeur_barre - nb_carres)
+    pourcentage = int(progression * 100)
+    sys.stdout.write(f"\r|{barre}| {pourcentage}% - Analyse : {nom_fichier}")
+    sys.stdout.flush()
 
 class HDData:
     
-    def __init__(self, folder_path, height, width, bits):
+    def __init__(self, folder_path, height, width, bits, use_matlab=False):
         self.__folder_path = folder_path
         self.__height = height
         self.__width = width
-        self.__ouverture = -0.1
-        self.__iso = -1
-        self.__focale = -0.1
         self.__bit_per_sample = bits
+        self.use_matlab = use_matlab
+        
+        # Load manual exposure table if it exists
+        self.__manual_exposures = self._load_exposure_table()
         
         self.__g, self.__lE, self.__exposures = self.extract_hd_data()
     
-    def extract_parameters(self, path):
-        """
-        Extrait le temps de pose EXIF (en secondes)
-        """
-        with open(path, "rb") as f:
-            tags = exifread.process_file(f)
-            
-            focale = tags.get('EXIF FocalLength')
-            if focale is not None:
-                if self.__focale == -0.1:
-                    self.__focale = float(focale.values[0])
-                elif self.__focale != float(focale.values[0]):
-                    print(f"Erreur, lors de votre prise de photo vous avez changé de focale à la photo {path}")
-                    return False
-            
-            iso = tags.get('EXIF ISOSpeedRatings')
-            if iso is not None:
-                if self.__iso == -1:
-                    self.__iso = int(iso.values[0])
-                elif self.__iso != int(iso.values[0]) :
-                    print(f"Erreur, lors de votre prise de photo vous avez changé d'iso à la photo {path}")
-                    return False
-            
-            ouverture = tags.get('EXIF FNumber')
-            if ouverture is not None:
-                if self.__ouverture == -0.1:
-                    self.__ouverture = float(ouverture.values[0])
-                elif self.__ouverture != float(ouverture.values[0]):
-                    print(f"Erreur, lors de votre prise de photo vous avez changé d'ouverture à la photo {path}")
-                    return False
-                
-            exposure = tags.get("EXIF ExposureTime")
-            if exposure is None:
-                return None
+    def _load_exposure_table(self):
+        """Parses the exposure.txt file provided by the user."""
+        table = {}
+        # Looking for 'exposure.txt' in the folder
+        file_path = os.path.join(self.__folder_path, "exposure.txt")
+        if os.path.exists(file_path):
+            print(f"Fichier d'exposition trouvé : {file_path}")
+            with open(file_path, 'r') as f:
+                for line in f:
+                    if line.startswith("#") or not line.strip():
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        filename = parts[0]
+                        try:
+                            # We take the middle column (shutter speed in seconds)
+                            expo_val = float(parts[1])
+                            table[filename] = expo_val
+                        except ValueError:
+                            continue
+        return table
 
-            # ex: 1/8000
-            if "/" in str(exposure):
-                num, den = str(exposure).split("/")
-                return int(num) / int(den)
-            else:
-                return float(str(exposure))
-            
-    def gsolve(self, Z, B, l, w):
-        # Z : Valeurs de pixels (i pixels, j images) - Array 2D
-        # B : Log des temps d'exposition log(delta t) - Array 1D
-        # l : Lambda (facteur de lissage)
-        n = self.__bit_per_sample # 16384
+    def extract_parameters(self, path):
+        filename = os.path.basename(path)
         
-        # Taille de la matrice A 
-        Z1 = np.size(Z, 0) # num_samples
-        Z2 = np.size(Z, 1) # nb_files
+        # Priority 1: Check the manual exposure table
+        if filename in self.__manual_exposures:
+            return self.__manual_exposures[filename]
+            
+        # Priority 2: Try EXIF
+        try:
+            with open(path, "rb") as f:
+                tags = exifread.process_file(f)
+                exposure = tags.get("EXIF ExposureTime") or tags.get("Image ExposureTime")
+                
+                if exposure:
+                    if "/" in str(exposure):
+                        num, den = str(exposure).split("/")
+                        return int(num) / int(den)
+                    return float(str(exposure))
+        except:
+            pass
+            
+        print(f"\nAttention: Pas d'exposition trouvée pour {filename}. Valeur par défaut 1.0 utilisée.")
+        return 1.0 
+            
+    def gsolve_matlab(self, Z, B, l, w):
+        print("\nStarting MATLAB Engine...")
+        eng = matlab.engine.start_matlab()
+        
+        Z_mat = matlab.double(Z.tolist())
+        B_mat = matlab.double(np.array(B).reshape(-1,1).tolist())
+        l_mat = float(l)
+        w_mat = matlab.double(np.array(w).tolist())
+        n_mat = float(self.__bit_per_sample)
+        
+        print("Running gsolve.m in MATLAB...")
+        g, lE = eng.gsolve(Z_mat, B_mat, l_mat, w_mat, n_mat, nargout=2)
+        
+        eng.quit()
+        return np.array(g).flatten(), np.array(lE).flatten()
+
+    def gsolve_python(self, Z, B, l, w):
+        n = self.__bit_per_sample 
+        Z1 = np.size(Z, 0) 
+        Z2 = np.size(Z, 1) 
         A = lil_matrix((Z1 * Z2 + n + 1, n + Z1), dtype=np.float32)
         b = np.zeros(np.size(A, 0), dtype=np.float32)
-        
         
         k = 0
         for i in range(Z1):
@@ -100,134 +117,86 @@ class HDData:
                 b[k] = wij * B[j]
                 k += 1
         
-        # Fix the curve by setting its middle value to 0
         A[k, n//2] = 1
         k += 1
 
-        # Include the smoothness equations
-        for i in range(n-1):
+        for i in range(n-2):
             A[k, i]   =    l*w[i+1]
             A[k, i+1] = -2*l*w[i+1]
             A[k, i+2] =    l*w[i+1]
             k += 1
         
-        print(np.shape(A))
-        print(np.shape(b))
-        
-        # Solve the system using SVD
         A = A.tocsr()
-        # pseudoA = np.linalg.pinv(A.toarray())
         x, istop, itn = lsqr(A, b)[:3]
-        print (istop, itn)
-        g = x[:n]
-        lE = x[n:]
-
-        return g, lE
+        return x[:n], x[n:]
             
     def extract_hd_data(self):
-        """
-        Récupère les données nécessaires pour tracer la courbe H&D
-        pour un pixel (x,y).
-        
-        Retourne :
-            exposures_log : liste log10(temps de pose)
-            pixel_values  : liste valeurs RAW correspondantes
-        """
-
+        valid_exts = (".arw", ".png", ".jpg", ".jpeg")
         files = sorted([
             os.path.join(self.__folder_path, f)
             for f in os.listdir(self.__folder_path)
-            if f.lower().endswith(".arw")
+            if f.lower().endswith(valid_exts) and f.lower() != "exposure.txt"
         ])
         
-        # Variables de stockage de données
-        exposures = []
+        if not files:
+            return None, None, None
+
         nb_files = len(files)
         num_samples = 50
-        Z = np.zeros((num_samples, nb_files))
+        Z_file_path = os.path.join(self.__folder_path, f"Z_{num_samples}_{nb_files}_.txt")
         
-        # Chemin d'accés au fichier de stockage de z et des expositions
-        Z_file_name = f"Z_{num_samples}_{nb_files}_.txt" 
-        Z_file_path = os.path.join("data", Z_file_name)
-        
-        # On regarde si le fichier Z existe, dans ce cas on le charge
         if os.path.isfile(Z_file_path):
             Z, exposures = self.charger_matrice_Z(Z_file_path)
-            
-        # Il n'existe pas, on le crée à partir des images RAW
         else:
-            
-            # On séléctionne aléatoirement num_samples pixels dans l'image (même position pour toutes les images)
             y_coords = np.random.randint(0, self.__height, num_samples)
             x_coords = np.random.randint(0, self.__width, num_samples)
+            exposures = []
+            Z = np.zeros((num_samples, nb_files))
             
             for i, path in enumerate(files):
-                
                 afficher_progression(i+1, nb_files, nom_fichier=os.path.basename(path))
-
-                exposure_time = self.extract_parameters(path) # en secondes
-                exposures.append(1/exposure_time) # en fréquence
+                exposure_time = self.extract_parameters(path)
+                exposures.append(exposure_time) 
                 
-                with rawpy.imread(path) as raw:
-                    Z[:, i] = raw.raw_image[y_coords, x_coords]
+                if path.lower().endswith(".arw"):
+                    with rawpy.imread(path) as raw:
+                        Z[:, i] = raw.raw_image[y_coords, x_coords]
+                else:
+                    img = Image.open(path).convert("L")
+                    Z[:, i] = np.array(img)[y_coords, x_coords]
             
-            # Stockage de Z et les expositions
+            print("")
             self.stocker_matrice_Z(Z, exposures, Z_file_path)
         
-        print(exposures)
-        print(Z)
-        
-        # Dernier paramètrage des variables pour Debevec
         exposures = np.array(exposures, dtype=np.float32)
+        # Weighting function (Debevec)
         w = [z if z <= 0.5*(self.__bit_per_sample - 1) else (self.__bit_per_sample - 1)-z for z in range(self.__bit_per_sample)]
+        # B is log delta t
         B = [np.log(e) for e in exposures]
-        l = 10
+        l = 100
         
-        # Cacul de g et lE avec la méthode de Debevec
-        print("Calcul de la courbe de réponse (Debevec)...")
-        g, lE = self.gsolve(Z, B, l, w)
+        if self.use_matlab:
+            g, lE = self.gsolve_matlab(Z, B, l, w)
+        else:
+            g, lE = self.gsolve_python(Z, B, l, w)
         
         pixel_values = np.arange(len(g)) 
-        print(g)
-        g = [np.log10(np.exp(i)) for i in g]
+        g_plot = [np.log10(np.exp(i)) for i in g]
         plt.figure(figsize=(10, 6))
-
-        # On trace g en X et les pixels en Y pour voir la courbe de réponse
-        plt.plot(g, pixel_values, color='green', linewidth=2)
-
-        plt.title("Courbe de Réponse du Capteur (OECF) - Méthode Debevec")
-        plt.xlabel("Log Exposure (ln E * dt)")
-        plt.ylabel("Valeur Numérique du Pixel (14-bit DN)")
-        plt.grid(True, which="both", ls="-", alpha=0.5)
-
+        plt.plot(g_plot, pixel_values, color='blue' if self.use_matlab else 'green', linewidth=2)
+        plt.title(f"OECF - {'MATLAB' if self.use_matlab else 'Python'} ({self.__bit_per_sample} levels)")
+        plt.xlabel("Log Exposure (ln E*dt)")
+        plt.ylabel("Pixel Value")
+        plt.grid(True)
         plt.show()
         
         return g, lE, exposures
     
     def stocker_matrice_Z(self, Z, exposures, filename):
-        try:
-            # fmt="%.4f" permet de garder 4 décimales (suffisant pour du RAW)
-            np.savetxt(filename, Z, fmt="%d", header=f"Matrice Z ({Z.shape[0]}x{Z.shape[1]})")
-            np.savetxt(filename[:-4] + "_exposures.txt", exposures, fmt="%.10f", header=f"Exposition en fréquence par image")
-            print(f"Matrice Z stockée avec succès dans {filename}")
-        except Exception as e:
-            print(f"Erreur lors du stockage : {e}")
+        np.savetxt(filename, Z, fmt="%d")
+        np.savetxt(filename[:-4] + "_exposures.txt", exposures, fmt="%.10f")
 
     def charger_matrice_Z(self, filename):
-        try:
-            Z = np.loadtxt(filename)
-            exposures = np.loadtxt(filename[:-4] + "_exposures.txt")
-            print(f"Matrice Z chargée avec succès. Taille : {Z.shape}")
-            return Z, exposures
-        except Exception as e:
-            print(f"Erreur lors du chargement : {e}")
-            return None
-       
-    def getG(self):
-        return self.__g
-
-    def getTag(self):
-        return self.__tag
- 
-    def getListExpo(self):
-        return self.__exposures
+        Z = np.loadtxt(filename)
+        exposures = np.loadtxt(filename[:-4] + "_exposures.txt")
+        return Z, exposures
