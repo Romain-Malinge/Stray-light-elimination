@@ -27,12 +27,41 @@ class PhotoViewer:
 
         self.use_matlab_var = tk.BooleanVar(value=False)
         tk.Checkbutton(control_frame, text="Utiliser MATLAB Engine", variable=self.use_matlab_var).pack()
+        
+        self.use_sparse_method = tk.BooleanVar(value=True)
+        tk.Checkbutton(control_frame, text="Utiliser matrices sparses", variable=self.use_sparse_method).pack()
 
         button_frame = tk.Frame(control_frame)
         button_frame.pack()
 
-        tk.Button(button_frame, text="< Précédent", command=self.prev_image).pack(side="left", padx=10)
-        tk.Button(button_frame, text="Suivant >", command=self.next_image).pack(side="right", padx=10)
+        tk.Button(
+            button_frame, 
+            text="< Précédent", 
+            command=self.prev_image,
+            bg="#f0f0f0",          
+            fg="#333333",          
+            activebackground="#e0e0e0",
+            font=("Arial", 10, "bold"),
+            relief="flat",         
+            borderwidth=0,
+            cursor="hand2",        
+            padx=15,
+            pady=8
+        ).pack(side="left", padx=10, pady=10)
+        tk.Button(
+            button_frame, 
+            text="Suivant >", 
+            command=self.next_image,
+            bg="#f0f0f0",         
+            fg="#333333",         
+            activebackground="#e0e0e0",
+            font=("Arial", 10, "bold"),
+            relief="flat",        
+            borderwidth=0,
+            cursor="hand2",        
+            padx=15,
+            pady=8
+        ).pack(side="right", padx=10, pady=10)
 
         self.canvas.bind("<Button-1>", self.calcul_oecf)
         self.show_image()
@@ -69,7 +98,7 @@ class PhotoViewer:
         self.root.title(f"{os.path.basename(self.files[self.index])}")
 
     def calcul_oecf(self, event):
-        hd.HDData(self.folder_path, self.raw_height, self.raw_width, self.__bits, use_matlab=self.use_matlab_var.get())
+        hd.HDData(self.folder_path, self.raw_height, self.raw_width, self.__bits, use_matlab=self.use_matlab_var.get(), sparse_method=self.use_sparse_method.get())
 
     def next_image(self):
         if self.index < len(self.files) - 1:
