@@ -104,7 +104,7 @@ class HDData:
         n = self.__bit_per_sample 
         Z1 = np.size(Z, 0) 
         Z2 = np.size(Z, 1) 
-        A = lil_matrix((Z1 * Z2 + n + 1, n + Z1), dtype=np.float32)
+        A = np.zeros((Z1 * Z2 + n + 1, n + Z1), dtype=np.float32)
         b = np.zeros(np.size(A, 0), dtype=np.float32)
         
         k = 0
@@ -126,9 +126,18 @@ class HDData:
             A[k, i+2] =    l*w[i+1]
             k += 1
         
-        A = A.tocsr()
-        x, istop, itn = lsqr(A, b)[:3]
-        return x[:n], x[n:]
+        print(np.shape(A))
+        print(np.shape(b))
+        
+        # Solve the system using SVD
+        #A = A.tocsr()
+        # pseudoA = np.linalg.pinv(A.toarray())
+        x, residuals, rank, s = np.linalg.lstsq(A, b, rcond=None)
+        #print (istop, itn)
+        g = x[:n].flatten()
+        lE = x[n:].flatten()
+
+        return g, lE
             
     def extract_hd_data(self):
         valid_exts = (".arw", ".png", ".jpg", ".jpeg")
@@ -138,12 +147,18 @@ class HDData:
             if f.lower().endswith(valid_exts) and f.lower() != "exposure.txt"
         ])
         
-        if not files:
-            return None, None, None
-
+        # Paramètres de base
         nb_files = len(files)
         num_samples = 50
-        Z_file_path = os.path.join(self.__folder_path, f"Z_{num_samples}_{nb_files}_.txt")
+        
+        # Variables de stockage de données
+        exposures = []
+        Z = np.zeros((num_samples, nb_files))
+        
+        # Chemin d'accés au fichier de stockage de z et des expositions
+        folder_name = os.path.basename(self.__folder_path)
+        Z_file_name = f"{folder_name}_{num_samples}samples_{nb_files}files_Z.txt" 
+        Z_file_path = os.path.join("data", Z_file_name)
         
         if os.path.isfile(Z_file_path):
             Z, exposures = self.charger_matrice_Z(Z_file_path)
@@ -193,10 +208,29 @@ class HDData:
         return g, lE, exposures
     
     def stocker_matrice_Z(self, Z, exposures, filename):
-        np.savetxt(filename, Z, fmt="%d")
-        np.savetxt(filename[:-4] + "_exposures.txt", exposures, fmt="%.10f")
+        try:
+            # fmt="%.4f" permet de garder 4 décimales (suffisant pour du RAW)
+            np.savetxt(filename, Z, fmt="%d", header=f"Matrice Z ({Z.shape[0]}x{Z.shape[1]})")
+            np.savetxt(filename[:-5] + "exposures.txt", exposures, fmt="%.10f", header=f"Exposition en fréquence par image")
+            print(f"Matrice Z stockée avec succès dans {filename}")
+        except Exception as e:
+            print(f"Erreur lors du stockage : {e}")
 
     def charger_matrice_Z(self, filename):
-        Z = np.loadtxt(filename)
-        exposures = np.loadtxt(filename[:-4] + "_exposures.txt")
-        return Z, exposures
+        try:
+            Z = np.loadtxt(filename)
+            exposures = np.loadtxt(filename[:-5] + "exposures.txt")
+            print(f"Matrice Z chargée avec succès. Taille : {Z.shape}")
+            return Z, exposures
+        except Exception as e:
+            print(f"Erreur lors du chargement : {e}")
+            return None
+       
+    def getG(self):
+        return self.__g
+
+    def getTag(self):
+        return self.__tag
+ 
+    def getListExpo(self):
+        return self.__exposures
