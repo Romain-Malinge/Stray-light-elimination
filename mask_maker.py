@@ -91,9 +91,22 @@ def load_image(image_path, brightness=1.0):
         with rawpy.imread(image_path) as raw:
             image = raw.postprocess(
                 bright=brightness,
-                output_bps=8
+                output_bps=8,
+                use_camera_wb=True
             )
+
+            # Récupérer les marges
+            top = raw.sizes.top_margin
+            left = raw.sizes.left_margin
+            height = raw.sizes.height
+            width = raw.sizes.width
+
+            image = image[top:top+height, left:left+width]
             image = np.array(image)
+
+            # inverser les canaux de couleur de BGR à RGB
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
     # Cas autres formats
     else:
         image = Image.open(image_path).convert("RGB")
@@ -228,7 +241,7 @@ def make_just_one_mask(image_path, version = "small"):
 
     predictor, device = create_sam_predictor(version)
 
-    image = load_image(image_path, brightness=2.0)
+    image = load_image(image_path)
     # si l'image
     predictor.set_image(image)
     input_point, input_label = get_input_points(image)
@@ -258,15 +271,6 @@ def make_just_one_mask(image_path, version = "small"):
     cv2.drawContours(filled_mask, contours, -1, 1, thickness=cv2.FILLED)
 
     mask = filled_mask
-    
-    # export mask as png
-    mask_save_path = os.path.join(os.path.dirname(image_path), '../Mask')
-    os.makedirs(mask_save_path, exist_ok=True)
-
-    mask_file_name = "00.png"
-    mask_save_path = os.path.join(mask_save_path, mask_file_name)
-    Image.fromarray((mask * 255).astype(np.uint8), mode='L').save(mask_save_path)
-    print(f"Mask saved to {mask_save_path}")
 
     return mask
     
