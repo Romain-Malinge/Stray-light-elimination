@@ -4,10 +4,13 @@ import rawpy
 import numpy as np
 import sys
 import matplotlib.pyplot as plt
+import scipy
 from scipy.sparse import csr_matrix, lil_matrix
 from scipy.sparse.linalg import lsqr
 from PIL import Image
 import math
+import scipy.interpolate
+import cvxpy
 
 # Import MATLAB if possible
 try:
@@ -201,8 +204,8 @@ class HDData:
         num_samples = 50
         
         # Variables de stockage de données
-        exposures = []
-        Z = np.zeros((num_samples, nb_files))
+        exposures = np.ndarray(shape=(nb_files,), dtype=np.float32)
+        Z = np.ndarray(shape=(num_samples, nb_files), dtype=np.uint16)
         
         # Chemin d'accés au fichier de stockage de z et des expositions
         file_name = f"{os.path.basename(self.__folder_path)}_{num_samples}samples_{nb_files}files"
@@ -213,13 +216,11 @@ class HDData:
         else:
             y_coords = np.random.randint(0, self.__height, num_samples)
             x_coords = np.random.randint(0, self.__width, num_samples)
-            exposures = []
-            Z = np.zeros((num_samples, nb_files))
             
             for i, path in enumerate(files):
                 afficher_progression(i+1, nb_files, nom_fichier=os.path.basename(path))
                 exposure_time = self.extract_parameters(path)
-                exposures.append(exposure_time) 
+                exposures[i] = exposure_time
                 
                 if path.lower().endswith(".arw"):
                     with rawpy.imread(path) as raw:
@@ -228,25 +229,28 @@ class HDData:
                     img = Image.open(path).convert("L")
                     Z[:, i] = np.array(img)[y_coords, x_coords]
             
-            print("")
+            
             self.stocker_matrices(Z, exposures, file_path)
         
         exposures = np.array(exposures, dtype=np.float32)
         # Weighting function (Debevec)
         w = [z if z <= 0.5*(self.__bit_per_sample - 1) else (self.__bit_per_sample - 1)-z for z in range(self.__bit_per_sample)]
         # B is log delta t
-        B = [np.log(e) for e in exposures]
+        B = exposures
         l = 100
         
         if self.use_matlab:
             g, lE = self.gsolve_matlab(Z, B, l, w)
         else:
-            g, lE = self.gsolve_python(Z, B, l, w)
+            #g, lE = self.gsolve_python(Z, B, l, w)
+            # responses = np.load('responses.npy')
+            responses = np.power(np.linspace(0, 1, 1000), np.linspace(0.5, 1.5, 100)[:,None])
+            E, complete_inv_response, complete_response = self.get_response_params(Z, B, responses, n_params=10)
         
-        pixel_values = np.arange(len(g)) 
+        pixel_values = np.arange(len(complete_inv_response))
         #g_plot = [np.log10(np.exp(i)) for i in g]
         plt.figure(figsize=(10, 6))
-        plt.plot(g, pixel_values, color='blue' if self.use_matlab else 'green', linewidth=2)
+        plt.plot(complete_inv_response, pixel_values, color='blue' if self.use_matlab else 'green', linewidth=2)
         plt.title(f"OECF - {'MATLAB' if self.use_matlab else 'Python'} ({self.__bit_per_sample} levels)")
         plt.xlabel("Log Exposure (ln E*dt)")
         plt.ylabel("Pixel Value")
@@ -281,3 +285,56 @@ class HDData:
  
     def getListExpo(self):
         return self.__exposures
+    
+    
+    def derivative(self, vals):
+        n_vals = np.shape(vals)[-1]
+        k = np.reciprocal(np.diff(1.0 * vals))
+        Dx = scipy.sparse.diags_array([-k, k], offsets = [0, 1], shape = (n_vals-1, n_vals))
+        return Dx
+
+    def data_attachement(self,grey, times):
+        (n_pix, n_time)= np.shape(grey)
+        vals, vals_indices = np.unique(grey, return_inverse=True)
+        vals_indices_flat = np.reshape(vals_indices, (-1,), order='C')
+        n_vals = np.shape(vals)[-1]
+        A_model = scipy.sparse.kron(scipy.sparse.eye(n_pix), -times[:,None])
+        A_func = scipy.sparse.coo_array((np.ones(n_pix*n_time),(np.arange(n_pix*n_time), vals_indices_flat)), shape=(n_pix*n_time, n_vals))
+        A =  scipy.sparse.hstack([A_model, A_func])
+        return A, vals
+
+    def inv_acp(self, responses, n_params, vals, eps = 0.001):
+        sample = (vals - np.min(vals))/(np.max(vals)- np.min(vals))
+        irrads = np.linspace(0, 1, responses.shape[-1])
+        regular_responses = (np.maximum.accumulate(responses, axis=-1) + irrads * eps)/(1+eps)
+        inv_responses = np.asarray([scipy.interpolate.PchipInterpolator(regular_response, irrads)(sample) for regular_response in regular_responses])
+        mean_inv_response = np.mean(inv_responses, axis=0)
+        _, s, acp = scipy.sparse.linalg.svds(inv_responses - mean_inv_response, k=n_params)
+        base = np.hstack([acp[np.argsort(s), :].T, mean_inv_response[:, None]])
+        return base
+
+    def get_response_params(self, grey, times, responses, n_params=10):
+        """
+        grey (Z) : ndarray, shape (n_pix, n_time)
+        times (B) : ndarray, shape (n_time,)
+        responses : ndarray, shape (n_responses, n_ech)
+        n_params : int
+        """
+        grey = grey.astype(np.uint16)
+        (n_pix, n_time)= np.shape(grey)
+        A, vals = self.data_attachement(grey, times)
+        n_vals = np.shape(vals)[-1]
+        base = self.inv_acp(responses, n_params, vals)
+        B = scipy.sparse.block_array([[scipy.sparse.eye(n_pix), None],[None, base]])
+        S = scipy.sparse.hstack([scipy.sparse.csr_array((n_vals, n_pix)), scipy.sparse.eye(n_vals)])
+        Dx = self.derivative(vals)
+        x = cvxpy.Variable(n_pix + n_params + 1)
+        objective = cvxpy.Minimize(cvxpy.sum_squares(A @ B @ x))
+        constraints = [Dx @ S @ B @ x >= 0.0, x[-1] == 1] #attention à modifier (strict)
+        prob = cvxpy.Problem(objective, constraints)
+        prob.solve(solver=cvxpy.OSQP, verbose=True)
+        E, inv_response = x.value[:n_pix], S @ B @ x.value
+        complete_inv_response = scipy.interpolate.PchipInterpolator(vals, inv_response, extrapolate=False)(np.arange(np.iinfo(grey.dtype).max+1))
+        print(inv_response)
+        complete_response = scipy.interpolate.PchipInterpolator(inv_response, vals, extrapolate=False) #evaluer avec complete_response(x)
+        return E, complete_inv_response, complete_response
