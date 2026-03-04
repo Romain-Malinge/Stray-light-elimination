@@ -247,13 +247,14 @@ class HDData:
             responses = np.power(np.linspace(0, 1, 1000), np.linspace(0.5, 1.5, 100)[:,None])
             E, complete_inv_response, complete_response = self.get_response_params(Z, B, responses, n_params=10)
         
-        pixel_values = np.arange(len(complete_inv_response))
+        exposures_values = np.linspace(0, 1, 1000)
         #g_plot = [np.log10(np.exp(i)) for i in g]
         plt.figure(figsize=(10, 6))
-        plt.plot(complete_inv_response, pixel_values, color='blue' if self.use_matlab else 'green', linewidth=2)
+        plt.scatter((E[:, None] * B[None, :]).flatten(), Z.flatten(), marker='+')
+        plt.plot(exposures_values, complete_response, color='blue' if self.use_matlab else 'green', linewidth=2)
         plt.title(f"OECF - {'MATLAB' if self.use_matlab else 'Python'} ({self.__bit_per_sample} levels)")
-        plt.xlabel("Log Exposure (ln E*dt)")
-        plt.ylabel("Pixel Value")
+        plt.ylabel("Exposure (ln E*dt)")
+        plt.xlabel("Pixel Value")
         plt.grid(True)
         plt.show()
         
@@ -324,7 +325,7 @@ class HDData:
         (n_pix, n_time)= np.shape(grey)
         A, vals = self.data_attachement(grey, times)
         n_vals = np.shape(vals)[-1]
-        base = self.inv_acp(responses, n_params, vals)
+        base = self.inv_acp(responses, n_params, vals) # tester base polynomiale
         B = scipy.sparse.block_array([[scipy.sparse.eye(n_pix), None],[None, base]])
         S = scipy.sparse.hstack([scipy.sparse.csr_array((n_vals, n_pix)), scipy.sparse.eye(n_vals)])
         Dx = self.derivative(vals)
@@ -334,7 +335,23 @@ class HDData:
         prob = cvxpy.Problem(objective, constraints)
         prob.solve(solver=cvxpy.OSQP, verbose=True)
         E, inv_response = x.value[:n_pix], S @ B @ x.value
-        complete_inv_response = scipy.interpolate.PchipInterpolator(vals, inv_response, extrapolate=False)(np.arange(np.iinfo(grey.dtype).max+1))
         print(inv_response)
-        complete_response = scipy.interpolate.PchipInterpolator(inv_response, vals, extrapolate=False) #evaluer avec complete_response(x)
+        
+        irrads = np.linspace(0, 1, inv_response.shape[-1])
+        eps = 0.001
+        regular_inv_response = (np.maximum.accumulate(inv_response, axis=-1) + irrads * eps)/(1+eps)
+        
+        complete_inv_response = scipy.interpolate.PchipInterpolator(vals, regular_inv_response, extrapolate=False)(np.arange(np.iinfo(grey.dtype).max+1))
+        complete_response = scipy.interpolate.PchipInterpolator(regular_inv_response, vals, extrapolate=False) #evaluer avec complete_response(x)
+        
+        complete_response = complete_response(np.linspace(0, 1, 1000))
+        
         return E, complete_inv_response, complete_response
+    
+    
+    # times = numpy.zeros(nt)
+    # for i, image_path in enumerate(paths):
+    #     with open(image_path, "rb") as f:
+    #         tags = exifread.process_file(f, details=False)
+    #         exposure = float(fractions.Fraction(str(tags.get("EXIF ExposureTime"))))
+    #         times[i] = exposure
