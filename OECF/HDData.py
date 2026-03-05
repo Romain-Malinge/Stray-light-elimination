@@ -248,14 +248,32 @@ class HDData:
             E, complete_inv_response, complete_response = self.get_response_params(Z, B, responses, n_params=10)
         
         exposures_values = np.linspace(0, 1, 1000)
+        pixel_values = np.arange(len(complete_inv_response))
         #g_plot = [np.log10(np.exp(i)) for i in g]
-        plt.figure(figsize=(10, 6))
+        
+        # Configuration de la figure avec une taille adaptée pour deux graphiques
+        plt.figure(figsize=(16, 6))
+
+        # --- PREMIER GRAPHIQUE (à gauche) ---
+        plt.subplot(1, 2, 1) # 1 ligne, 2 colonnes, index 1
         plt.scatter((E[:, None] * B[None, :]).flatten(), Z.flatten(), marker='+')
         plt.plot(exposures_values, complete_response, color='blue' if self.use_matlab else 'green', linewidth=2)
         plt.title(f"OECF - {'MATLAB' if self.use_matlab else 'Python'} ({self.__bit_per_sample} levels)")
-        plt.ylabel("Exposure (ln E*dt)")
-        plt.xlabel("Pixel Value")
+        plt.xlabel("Exposure (E*dt)")
+        plt.ylabel("Pixel Value (Z)") # Correction suggérée du label selon vos données
         plt.grid(True)
+
+        # --- SECOND GRAPHIQUE (à droite) ---
+        plt.subplot(1, 2, 2) # 1 ligne, 2 colonnes, index 2
+        plt.scatter(Z.flatten(), (E[:, None] * B[None, :]).flatten(), marker='+')
+        plt.plot(pixel_values, complete_inv_response, color='blue' if self.use_matlab else 'green', linewidth=2)
+        plt.title(f"Inverse OECF - {'MATLAB' if self.use_matlab else 'Python'}")
+        plt.xlabel("Pixel Value (Z)")
+        plt.ylabel("Exposure (E*dt)")
+        plt.grid(True)
+
+        # Ajuster automatiquement l'espacement entre les graphiques
+        plt.tight_layout()
         plt.show()
         
         return g, lE, exposures
