@@ -180,9 +180,6 @@ class ResponseCalculator:
             base[:, i] = spline(x)
 
         return base
-  
-
-
 
     def get_response_params(self, grey, times, responses, n_params=10):
         """
@@ -197,13 +194,13 @@ class ResponseCalculator:
         n_vals = np.shape(vals)[-1]
         
         # base = self.inv_acp(responses, n_params, vals) # tester base polynomiale
-        base = self.base_bspline(n_params, vals, 3)
+        base = self.base_bspline(n_params, vals,3)
         B = scipy.sparse.block_array([[scipy.sparse.eye(n_pix), None], [None, base]])
         
         S = scipy.sparse.hstack([scipy.sparse.csr_array((n_vals, n_pix)), scipy.sparse.eye(n_vals)])
         Dx = self.derivative(vals)
         # x = cvxpy.Variable(n_pix + n_params + 1)
-        x = cvxpy.Variable(n_pix + base.shape[1])
+        x = cvxpy.Variable(n_pix + base.shape[1]) #bspline
         objective = cvxpy.Minimize(cvxpy.sum_squares(A @ B @ x))
         constraints = [Dx @ S @ B @ x >= 0.0, x[-1] == 1]
         #constraints = [Dx @ S @ B @ x >= 0.0, (S @ B @ x)[-1] == 0]

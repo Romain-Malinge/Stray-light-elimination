@@ -6,6 +6,7 @@ import sys
 import matplotlib.pyplot as plt
 from PIL import Image
 import ResponseCalculator as RC
+import imageio
 
 SUPPORTED_EXTENSIONS = (".arw", ".jpg", ".jpeg", ".png", ".nef")
 
@@ -123,7 +124,6 @@ class HDData:
         # Paramètres de base
         nb_files = len(files)
         num_samples = 100
-        raw = None
         
         # Variables de stockage de données
         exposures = np.ndarray(shape=(nb_files,), dtype=np.float32)
@@ -173,13 +173,6 @@ class HDData:
             responses = np.power(np.linspace(0, 1, 1000), np.linspace(0.5, 1.5, 100)[:,None])
             E, complete_inv_response, complete_response = solver.get_response_params(Z, B, responses, n_params=10)
         
-        # print("Response inv")
-        # print(complete_inv_response)
-        # print("Response")
-        # print(complete_response)
-        # print("E")
-        # print(E)
-        
         exposures_values = np.linspace(0, 1, 1000)
         pixel_values = np.arange(len(complete_inv_response))
         #g_plot = [np.log10(np.exp(i)) for i in g]
@@ -214,9 +207,16 @@ class HDData:
         plt.show()
         
         
-        # #
-        # img_linear = self.apply_linearization(photo_normale, complete_inv_response)
-        # img_final = self.apply_response(img_linear, np.linspace(0, 1, 1000), complete_response)
+        # Traitement de photos
+        self.stock_functions("nikon_responses.npz", complete_inv_response, complete_response)
+        resinv, res = self.load_functions("sonya6700_responses.npz") 
+        with rawpy.imread("C:\\Users\\benja\\Documents\\3A\\Stray-light-elimination\\OECF\\SonyA6700(2)\\SHUTTERS00032.ARW") as raw:
+            raw_data = raw.raw_image.copy()
+            imageio.imsave('raw_ref.tiff', raw_data.astype(np.uint16))
+            img_linear = self.apply_linearization(raw_data, resinv)
+            imageio.imsave('raw_linear.tiff', raw_data.astype(np.uint16))
+            img_final = self.apply_response(img_linear, res)
+            imageio.imsave('raw_final.tiff', img_final.astype(np.uint16))
     
     def stocker_matrices(self, Z, exposures, filename):
         try:
@@ -254,7 +254,7 @@ class HDData:
         # C'est extrêmement rapide
         return inv_resp_lut[image_raw.astype(int)]
     
-    def apply_response(self, image_linear, linear_vals, resp_vals):
+    def apply_response(self, image_linear, resp_vals, linear_vals=np.linspace(0, 1, 1000)):
         """
         Passe l'image linéaire [0, 1] vers l'espace non-linéaire
         linear_vals: np.linspace(0, 1, 1000)
@@ -264,4 +264,32 @@ class HDData:
         flat_img = image_linear.flatten()
         interp_flat = np.interp(flat_img, linear_vals, resp_vals)
         return interp_flat.reshape(image_linear.shape)
+    
+    def stock_functions(self, filename, complete_inv_response, complete_response):
+        """
+        Sauvegarde les tableaux de réponse dans un fichier compressé .npz.
+        """
+        # On force l'extension si elle n'est pas présente
+        if not filename.endswith('.npz'):
+            filename += '.npz'
+        
+        np.savez_compressed(filename, 
+                            inv_res=complete_inv_response, 
+                            res=complete_response)
+        print(f"Fonctions sauvegardées avec succès dans {filename}")
+
+    def load_functions(self, filename):
+        """
+        Charge les tableaux de réponse à partir du fichier .npz.
+        Retourne (complete_inv_response, complete_response)
+        """
+        if not filename.endswith('.npz'):
+            filename += '.npz'
+            
+        data = np.load(filename)
+        
+        complete_inv_response = data['inv_res']
+        complete_response = data['res']
+        
+        return complete_inv_response, complete_response
         
