@@ -6,8 +6,6 @@ import tkinter as tk
 from tkinter import filedialog
 import HDData as hd
 
-SUPPORTED_EXTENSIONS = (".arw", ".jpg", ".jpeg", ".png")
-
 class PhotoViewer:
     
     def __init__(self, root, folder_path):
@@ -68,11 +66,11 @@ class PhotoViewer:
 
     def load_images(self, folder):
         return [os.path.join(folder, f) for f in sorted(os.listdir(folder)) 
-                if f.lower().endswith(SUPPORTED_EXTENSIONS)]
+                if f.lower().endswith(hd.SUPPORTED_EXTENSIONS)]
 
     def load_image(self, path):
         ext = os.path.splitext(path)[1].lower()
-        if ext == ".arw":
+        if ext == ".arw" or ext == ".nef":
             with rawpy.imread(path) as raw:
                 self.raw_height, self.raw_width = raw.raw_image_visible.shape
                 self.__bits = raw.white_level + 1

@@ -4,21 +4,10 @@ import rawpy
 import numpy as np
 import sys
 import matplotlib.pyplot as plt
-import scipy
-from scipy.sparse import csr_matrix, lil_matrix
-from scipy.sparse.linalg import lsqr
 from PIL import Image
-import math
-import scipy.interpolate
-import cvxpy
+import ResponseCalculator as RC
 
-# Import MATLAB if possible
-try:
-    import matlab.engine
-except RuntimeError:
-    print("Warning: Matlab license not found. MATLAB mode will fail.")
-except ImportError:
-    print("Warning: matlab.engine not found. MATLAB mode will fail.")
+SUPPORTED_EXTENSIONS = (".arw", ".jpg", ".jpeg", ".png", ".nef")
 
 def afficher_progression(actuel, total, nom_fichier=""):
     largeur_barre = 40
@@ -47,7 +36,7 @@ class HDData:
         # Load manual exposure table if it exists
         self.__manual_exposures = self._load_exposure_table()
         
-        self.__g, self.__lE, self.__exposures = self.extract_hd_data()
+        self.extract_hd_data()
     
     def _load_exposure_table(self):
         """Parses the exposure.txt file provided by the user."""
@@ -121,87 +110,20 @@ class HDData:
             
         print(f"\nAttention: Pas d'exposition trouvée pour {filename}. Valeur par défaut 1.0 utilisée.")
         return 1.0 
-            
-    def gsolve_matlab(self, Z, B, l, w):
-        print("\nStarting MATLAB Engine...")
-        eng = matlab.engine.start_matlab()
-        
-        Z_mat = matlab.double(Z.tolist())
-        B_mat = matlab.double(np.array(B).reshape(-1,1).tolist())
-        l_mat = float(l)
-        w_mat = matlab.double(np.array(w).tolist())
-        n_mat = float(self.__bit_per_sample)
-        
-        print("Running gsolve.m in MATLAB...")
-        g, lE = eng.gsolve(Z_mat, B_mat, l_mat, w_mat, n_mat, nargout=2)
-        
-        eng.quit()
-        return np.array(g).flatten(), np.array(lE).flatten()
-
-    def gsolve_python(self, Z, B, l, w):
-        n = self.__bit_per_sample 
-        Z1 = np.size(Z, 0) 
-        Z2 = np.size(Z, 1)
-        
-        if self.sparse_method:
-            A = lil_matrix((Z1 * Z2 + n + 1, n + Z1), dtype=np.float32)
-        else: 
-            A = np.zeros((Z1 * Z2 + n + 1, n + Z1), dtype=np.float32)
-        
-        b = np.zeros(np.size(A, 0), dtype=np.float32)
-        
-        k = 0
-        for i in range(Z1):
-            for j in range(Z2):
-                z = int(Z[i, j])
-                wij = w[z]
-                A[k, z] = wij
-                A[k, n + i] = -wij
-                b[k] = wij * B[j]
-                k += 1
-        
-        A[k, n//2] = 1
-        k += 1
-
-        for i in range(n-2):
-            A[k, i]   =    l*w[i+1]
-            A[k, i+1] = -2*l*w[i+1]
-            A[k, i+2] =    l*w[i+1]
-            k += 1
-        
-        print(np.shape(A))
-        print(np.shape(b))
-        
-        # Solve the system using SVD
-        
-        # pseudoA = np.linalg.pinv(A.toarray())
-        if self.sparse_method:
-            print("Using sparse solver...")
-            A = A.tocsr()
-            x, istop, itn = lsqr(A, b)[:3]
-            #print (istop, itn)
-            g = x[:n]
-            lE = x[n:]
-        else:
-            print("Using dense solver, may take a while...")
-            x, residuals, rank, s = np.linalg.lstsq(A, b, rcond=None)
-            g = x[:n].flatten()
-            lE = x[n:].flatten()
-        
-
-        return g, lE
-            
+                    
     def extract_hd_data(self):
-        valid_exts = (".arw", ".png", ".jpg", ".jpeg")
+        
+        # Récupération de la liste des images dans le répertoire
         files = sorted([
             os.path.join(self.__folder_path, f)
             for f in os.listdir(self.__folder_path)
-            if f.lower().endswith(valid_exts) and f.lower() != "exposure.txt"
+            if f.lower().endswith(SUPPORTED_EXTENSIONS) and f.lower() != "exposure.txt"
         ])
         
         # Paramètres de base
         nb_files = len(files)
-        num_samples = 50
+        num_samples = 100
+        raw = None
         
         # Variables de stockage de données
         exposures = np.ndarray(shape=(nb_files,), dtype=np.float32)
@@ -222,7 +144,7 @@ class HDData:
                 exposure_time = self.extract_parameters(path)
                 exposures[i] = exposure_time
                 
-                if path.lower().endswith(".arw"):
+                if path.lower().endswith((".arw", ".nef")):
                     with rawpy.imread(path) as raw:
                         Z[:, i] = raw.raw_image[y_coords, x_coords]
                 else:
@@ -239,13 +161,24 @@ class HDData:
         B = exposures
         l = 100
         
+        print(B)
+        
+        solver = RC.ResponseCalculator()
+        
         if self.use_matlab:
-            g, lE = self.gsolve_matlab(Z, B, l, w)
+            g, lE = solver.gsolve_matlab(Z, B, l, w)
         else:
             #g, lE = self.gsolve_python(Z, B, l, w)
-            # responses = np.load('responses.npy')
+            #responses = np.load('responses.npy')
             responses = np.power(np.linspace(0, 1, 1000), np.linspace(0.5, 1.5, 100)[:,None])
-            E, complete_inv_response, complete_response = self.get_response_params(Z, B, responses, n_params=10)
+            E, complete_inv_response, complete_response = solver.get_response_params(Z, B, responses, n_params=10)
+        
+        # print("Response inv")
+        # print(complete_inv_response)
+        # print("Response")
+        # print(complete_response)
+        # print("E")
+        # print(E)
         
         exposures_values = np.linspace(0, 1, 1000)
         pixel_values = np.arange(len(complete_inv_response))
@@ -259,24 +192,31 @@ class HDData:
         plt.scatter((E[:, None] * B[None, :]).flatten(), Z.flatten(), marker='+')
         plt.plot(exposures_values, complete_response, color='blue' if self.use_matlab else 'green', linewidth=2)
         plt.title(f"OECF - {'MATLAB' if self.use_matlab else 'Python'} ({self.__bit_per_sample} levels)")
-        plt.xlabel("Exposure (E*dt)")
-        plt.ylabel("Pixel Value (Z)") # Correction suggérée du label selon vos données
-        plt.grid(True)
+        plt.xlabel("Log Exposure (E*dt)")
+        plt.ylabel("Log Pixel Value (Z)") # Correction suggérée du label selon vos données
+        plt.xscale('log')
+        plt.yscale('log')
+        plt.grid(True, which="both", ls="-", alpha=0.5)
 
         # --- SECOND GRAPHIQUE (à droite) ---
         plt.subplot(1, 2, 2) # 1 ligne, 2 colonnes, index 2
         plt.scatter(Z.flatten(), (E[:, None] * B[None, :]).flatten(), marker='+')
         plt.plot(pixel_values, complete_inv_response, color='blue' if self.use_matlab else 'green', linewidth=2)
         plt.title(f"Inverse OECF - {'MATLAB' if self.use_matlab else 'Python'}")
-        plt.xlabel("Pixel Value (Z)")
-        plt.ylabel("Exposure (E*dt)")
-        plt.grid(True)
+        plt.xlabel("Log Pixel Value (Z)")
+        plt.ylabel("Log Exposure (E*dt)")
+        plt.xscale('log')
+        plt.yscale('log')
+        plt.grid(True, which="both", ls="-", alpha=0.5)
 
         # Ajuster automatiquement l'espacement entre les graphiques
         plt.tight_layout()
         plt.show()
         
-        return g, lE, exposures
+        
+        # #
+        # img_linear = self.apply_linearization(photo_normale, complete_inv_response)
+        # img_final = self.apply_response(img_linear, np.linspace(0, 1, 1000), complete_response)
     
     def stocker_matrices(self, Z, exposures, filename):
         try:
@@ -305,71 +245,23 @@ class HDData:
     def getListExpo(self):
         return self.__exposures
     
-    
-    def derivative(self, vals):
-        n_vals = np.shape(vals)[-1]
-        k = np.reciprocal(np.diff(1.0 * vals))
-        Dx = scipy.sparse.diags_array([-k, k], offsets = [0, 1], shape = (n_vals-1, n_vals))
-        return Dx
-
-    def data_attachement(self,grey, times):
-        (n_pix, n_time)= np.shape(grey)
-        vals, vals_indices = np.unique(grey, return_inverse=True)
-        vals_indices_flat = np.reshape(vals_indices, (-1,), order='C')
-        n_vals = np.shape(vals)[-1]
-        A_model = scipy.sparse.kron(scipy.sparse.eye(n_pix), -times[:,None])
-        A_func = scipy.sparse.coo_array((np.ones(n_pix*n_time),(np.arange(n_pix*n_time), vals_indices_flat)), shape=(n_pix*n_time, n_vals))
-        A =  scipy.sparse.hstack([A_model, A_func])
-        return A, vals
-
-    def inv_acp(self, responses, n_params, vals, eps = 0.001):
-        sample = (vals - np.min(vals))/(np.max(vals)- np.min(vals))
-        irrads = np.linspace(0, 1, responses.shape[-1])
-        regular_responses = (np.maximum.accumulate(responses, axis=-1) + irrads * eps)/(1+eps)
-        inv_responses = np.asarray([scipy.interpolate.PchipInterpolator(regular_response, irrads)(sample) for regular_response in regular_responses])
-        mean_inv_response = np.mean(inv_responses, axis=0)
-        _, s, acp = scipy.sparse.linalg.svds(inv_responses - mean_inv_response, k=n_params)
-        base = np.hstack([acp[np.argsort(s), :].T, mean_inv_response[:, None]])
-        return base
-
-    def get_response_params(self, grey, times, responses, n_params=10):
+    def apply_linearization(self,image_raw, inv_resp_lut):
         """
-        grey (Z) : ndarray, shape (n_pix, n_time)
-        times (B) : ndarray, shape (n_time,)
-        responses : ndarray, shape (n_responses, n_ech)
-        n_params : int
+        Passe l'image brute (0-255) dans l'espace linéaire [0, 1]
+        inv_resp_lut: votre tableau 'complete_inv_response'
         """
-        grey = grey.astype(np.uint16)
-        (n_pix, n_time)= np.shape(grey)
-        A, vals = self.data_attachement(grey, times)
-        n_vals = np.shape(vals)[-1]
-        base = self.inv_acp(responses, n_params, vals) # tester base polynomiale
-        B = scipy.sparse.block_array([[scipy.sparse.eye(n_pix), None],[None, base]])
-        S = scipy.sparse.hstack([scipy.sparse.csr_array((n_vals, n_pix)), scipy.sparse.eye(n_vals)])
-        Dx = self.derivative(vals)
-        x = cvxpy.Variable(n_pix + n_params + 1)
-        objective = cvxpy.Minimize(cvxpy.sum_squares(A @ B @ x))
-        constraints = [Dx @ S @ B @ x >= 0.0, x[-1] == 1] #attention à modifier (strict)
-        prob = cvxpy.Problem(objective, constraints)
-        prob.solve(solver=cvxpy.OSQP, verbose=True)
-        E, inv_response = x.value[:n_pix], S @ B @ x.value
-        print(inv_response)
-        
-        irrads = np.linspace(0, 1, inv_response.shape[-1])
-        eps = 0.001
-        regular_inv_response = (np.maximum.accumulate(inv_response, axis=-1) + irrads * eps)/(1+eps)
-        
-        complete_inv_response = scipy.interpolate.PchipInterpolator(vals, regular_inv_response, extrapolate=False)(np.arange(np.iinfo(grey.dtype).max+1))
-        complete_response = scipy.interpolate.PchipInterpolator(regular_inv_response, vals, extrapolate=False) #evaluer avec complete_response(x)
-        
-        complete_response = complete_response(np.linspace(0, 1, 1000))
-        
-        return E, complete_inv_response, complete_response
+        # On utilise l'image comme index dans la table de correspondance
+        # C'est extrêmement rapide
+        return inv_resp_lut[image_raw.astype(int)]
     
-    
-    # times = numpy.zeros(nt)
-    # for i, image_path in enumerate(paths):
-    #     with open(image_path, "rb") as f:
-    #         tags = exifread.process_file(f, details=False)
-    #         exposure = float(fractions.Fraction(str(tags.get("EXIF ExposureTime"))))
-    #         times[i] = exposure
+    def apply_response(self, image_linear, linear_vals, resp_vals):
+        """
+        Passe l'image linéaire [0, 1] vers l'espace non-linéaire
+        linear_vals: np.linspace(0, 1, 1000)
+        resp_vals: votre tableau 'complete_response'
+        """
+        # Ici on utilise np.interp car l'image linéaire contient des flottants
+        flat_img = image_linear.flatten()
+        interp_flat = np.interp(flat_img, linear_vals, resp_vals)
+        return interp_flat.reshape(image_linear.shape)
+        
