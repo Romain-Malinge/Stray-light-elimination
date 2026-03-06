@@ -21,13 +21,13 @@ def afficher_progression(actuel, total, nom_fichier=""):
 
 class HDData:
     
-    def __init__(self, folder_path, height, width, bits, use_matlab=False, sparse_method=True):
+    def __init__(self, folder_path, height, width, bits, use_matlab=False, bases = {"Spline": True} ):
         self.__folder_path = folder_path
         self.__height = height
         self.__width = width
         self.__bit_per_sample = bits
         self.use_matlab = use_matlab
-        self.sparse_method = sparse_method
+        self.bases = bases
         
         # Initial values for consistency checks
         self.__focale = -0.1
@@ -161,40 +161,45 @@ class HDData:
         B = exposures
         l = 100
         
-        print(B)
-        
         solver = RC.ResponseCalculator()
+        response_dic = {}
+        inv_response_dic = {}
         
         if self.use_matlab:
             g, lE = solver.gsolve_matlab(Z, B, l, w)
-        else:
             #g, lE = self.gsolve_python(Z, B, l, w)
+        else:
             #responses = np.load('responses.npy')
             responses = np.power(np.linspace(0, 1, 1000), np.linspace(0.5, 1.5, 100)[:,None])
-            E, complete_inv_response, complete_response = solver.get_response_params(Z, B, responses, n_params=10)
+            for base_name in self.bases:
+                print(f"Calcul de la réponse avec la base {base_name}...")
+                E, complete_inv_response, complete_response = solver.get_response_params(Z, B, responses, base_name, n_params=10)
+                response_dic[base_name] = complete_response
+                inv_response_dic[base_name] = complete_inv_response
         
         exposures_values = np.linspace(0, 1, 1000)
-        pixel_values = np.arange(len(complete_inv_response))
-        #g_plot = [np.log10(np.exp(i)) for i in g]
+        pixel_values = np.arange(65536)
         
         # Configuration de la figure avec une taille adaptée pour deux graphiques
         plt.figure(figsize=(16, 6))
 
-        # --- PREMIER GRAPHIQUE (à gauche) ---
-        plt.subplot(1, 2, 1) # 1 ligne, 2 colonnes, index 1
-        plt.scatter((E[:, None] * B[None, :]).flatten(), Z.flatten(), marker='+')
-        plt.plot(exposures_values, complete_response, color='blue' if self.use_matlab else 'green', linewidth=2)
+        # --- PREMIER GRAPHIQUE ---
+        plt.subplot(1, 2, 1)
+        #plt.scatter((E[:, None] * B[None, :]).flatten(), Z.flatten(), marker='+')
+        for base_name, complete_response in response_dic.items():
+            plt.plot(exposures_values, complete_response, linewidth=2)
         plt.title(f"OECF - {'MATLAB' if self.use_matlab else 'Python'} ({self.__bit_per_sample} levels)")
         plt.xlabel("Log Exposure (E*dt)")
-        plt.ylabel("Log Pixel Value (Z)") # Correction suggérée du label selon vos données
+        plt.ylabel("Log Pixel Value (Z)")
         plt.xscale('log')
         plt.yscale('log')
         plt.grid(True, which="both", ls="-", alpha=0.5)
 
-        # --- SECOND GRAPHIQUE (à droite) ---
-        plt.subplot(1, 2, 2) # 1 ligne, 2 colonnes, index 2
-        plt.scatter(Z.flatten(), (E[:, None] * B[None, :]).flatten(), marker='+')
-        plt.plot(pixel_values, complete_inv_response, color='blue' if self.use_matlab else 'green', linewidth=2)
+        # --- SECOND GRAPHIQUE ---
+        plt.subplot(1, 2, 2)
+        #plt.scatter(Z.flatten(), (E[:, None] * B[None, :]).flatten(), marker='+')
+        for base_name, complete_inv_response in inv_response_dic.items():
+            plt.plot(pixel_values, complete_inv_response, linewidth=2)
         plt.title(f"Inverse OECF - {'MATLAB' if self.use_matlab else 'Python'}")
         plt.xlabel("Log Pixel Value (Z)")
         plt.ylabel("Log Exposure (E*dt)")
@@ -206,17 +211,16 @@ class HDData:
         plt.tight_layout()
         plt.show()
         
-        
         # Traitement de photos
-        self.stock_functions("nikon_responses.npz", complete_inv_response, complete_response)
-        resinv, res = self.load_functions("sonya6700_responses.npz") 
-        with rawpy.imread("C:\\Users\\benja\\Documents\\3A\\Stray-light-elimination\\OECF\\SonyA6700(2)\\SHUTTERS00032.ARW") as raw:
-            raw_data = raw.raw_image.copy()
-            imageio.imsave('raw_ref.tiff', raw_data.astype(np.uint16))
-            img_linear = self.apply_linearization(raw_data, resinv)
-            imageio.imsave('raw_linear.tiff', raw_data.astype(np.uint16))
-            img_final = self.apply_response(img_linear, res)
-            imageio.imsave('raw_final.tiff', img_final.astype(np.uint16))
+        # self.stock_functions("nikon_responses.npz", complete_inv_response, complete_response)
+        # resinv, res = self.load_functions("sonya6700_responses.npz") 
+        # with rawpy.imread("C:\\Users\\benja\\Documents\\3A\\Stray-light-elimination\\OECF\\SonyA6700(2)\\SHUTTERS00032.ARW") as raw:
+        #     raw_data = raw.raw_image.copy()
+        #     imageio.imsave('raw_ref.tiff', raw_data.astype(np.uint16))
+        #     img_linear = self.apply_linearization(raw_data, resinv)
+        #     imageio.imsave('raw_linear.tiff', raw_data.astype(np.uint16))
+        #     img_final = self.apply_response(img_linear, res)
+        #     imageio.imsave('raw_final.tiff', img_final.astype(np.uint16))
     
     def stocker_matrices(self, Z, exposures, filename):
         try:
@@ -247,7 +251,7 @@ class HDData:
     
     def apply_linearization(self,image_raw, inv_resp_lut):
         """
-        Passe l'image brute (0-255) dans l'espace linéaire [0, 1]
+        Passe l'image brute dans l'espace linéaire [0, 1]
         inv_resp_lut: votre tableau 'complete_inv_response'
         """
         # On utilise l'image comme index dans la table de correspondance

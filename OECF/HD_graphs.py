@@ -5,6 +5,7 @@ from PIL import Image, ImageTk
 import tkinter as tk
 from tkinter import filedialog
 import HDData as hd
+import ResponseCalculator as rc
 
 class PhotoViewer:
     
@@ -26,8 +27,24 @@ class PhotoViewer:
         self.use_matlab_var = tk.BooleanVar(value=False)
         tk.Checkbutton(control_frame, text="Utiliser MATLAB Engine", variable=self.use_matlab_var).pack()
         
-        self.use_sparse_method = tk.BooleanVar(value=True)
-        tk.Checkbutton(control_frame, text="Utiliser matrices sparses", variable=self.use_sparse_method).pack()
+        # 1. Création du Menubutton (le bouton qui déclenche le menu)
+        mb = tk.Menubutton(control_frame, text="Choix des bases", relief=tk.RAISED)
+        mb.pack(pady=10)
+
+        # 2. Création du Menu attaché au Menubutton
+        menu_deroulant = tk.Menu(mb, tearoff=0)
+        mb["menu"] = menu_deroulant
+        self.choix_bases = {}
+        
+        for base in rc.BASES:
+            var = tk.BooleanVar()
+            self.choix_bases[base] = var
+            menu_deroulant.add_checkbutton(
+                label=base, 
+                variable=var, 
+                onvalue=True, 
+                offvalue=False
+            )
 
         button_frame = tk.Frame(control_frame)
         button_frame.pack()
@@ -96,7 +113,8 @@ class PhotoViewer:
         self.root.title(f"{os.path.basename(self.files[self.index])}")
 
     def calcul_oecf(self, event):
-        hd.HDData(self.folder_path, self.raw_height, self.raw_width, self.__bits, use_matlab=self.use_matlab_var.get(), sparse_method=self.use_sparse_method.get())
+        selectionnes = [nom for nom, var in self.choix_bases.items() if var.get()]
+        hd.HDData(self.folder_path, self.raw_height, self.raw_width, self.__bits, use_matlab=self.use_matlab_var.get(), bases = selectionnes)
 
     def next_image(self):
         if self.index < len(self.files) - 1:

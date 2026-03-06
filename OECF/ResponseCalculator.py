@@ -7,6 +7,8 @@ from scipy.sparse.linalg import lsqr
 
 from scipy.interpolate import BSpline
 
+BASES = ["Analyse en Composante Principales", "Polynomiale", "Chebyshev", "Lagrange", "Spline"]
+
 # Import MATLAB if possible
 try:
     import matlab.engine
@@ -181,11 +183,12 @@ class ResponseCalculator:
 
         return base
 
-    def get_response_params(self, grey, times, responses, n_params=10):
+    def get_response_params(self, grey, times, responses, base_chosed, n_params=10):
         """
         grey (Z) : ndarray, shape (n_pix, n_time)
         times (B) : ndarray, shape (n_time,)
         responses : ndarray, shape (n_responses, n_ech)
+        base_chosed : str
         n_params : int
         """
         grey = grey.astype(np.uint16)
@@ -193,19 +196,37 @@ class ResponseCalculator:
         A, vals = self.data_attachement(grey, times)
         n_vals = np.shape(vals)[-1]
         
-        # base = self.inv_acp(responses, n_params, vals) # tester base polynomiale
-        base = self.base_bspline(n_params, vals,3)
+        match base_chosed:
+            case "Analyse en Composante Principales":
+                base = self.inv_acp(responses, n_params, vals)
+            case "Spline":
+                base = self.base_bspline(n_params, vals, degree=3)
+            case "Polynomiale":
+                base = self.base_polynomiale(n_params, vals)
+            case "Chebyshev":
+                base = self.base_chebyshev(n_params, vals)
+            case "Lagrange":
+                base = self.base_lagrange(n_params, vals)
+            case _:
+                print(f"Base {base_chosed} not recognized. Using default (Spline).")
+                base = self.base_bspline(n_params, vals, degree=3)
+    
         B = scipy.sparse.block_array([[scipy.sparse.eye(n_pix), None], [None, base]])
-        
         S = scipy.sparse.hstack([scipy.sparse.csr_array((n_vals, n_pix)), scipy.sparse.eye(n_vals)])
         Dx = self.derivative(vals)
-        # x = cvxpy.Variable(n_pix + n_params + 1)
-        x = cvxpy.Variable(n_pix + base.shape[1]) #bspline
+        
+        match base_chosed:
+            case "Spline":
+                x = cvxpy.Variable(n_pix + base.shape[1]) 
+            case "Analyse en Composante Principales":
+                x = cvxpy.Variable(n_pix + base.shape[1])
+            case _:
+                x = cvxpy.Variable(n_pix + base.shape[1])
+        
         objective = cvxpy.Minimize(cvxpy.sum_squares(A @ B @ x))
         constraints = [Dx @ S @ B @ x >= 0.0, x[-1] == 1]
-        #constraints = [Dx @ S @ B @ x >= 0.0, (S @ B @ x)[-1] == 0]
         prob = cvxpy.Problem(objective, constraints)
-        prob.solve(solver=cvxpy.OSQP, verbose=True)
+        prob.solve(solver=cvxpy.OSQP, verbose=False)
         E, inv_response = x.value[:n_pix], S @ B @ x.value
         
         irrads = np.linspace(0, 1, inv_response.shape[-1])
@@ -213,8 +234,6 @@ class ResponseCalculator:
         regular_inv_response = (np.maximum.accumulate(inv_response, axis=-1) + irrads * eps)/(1+eps)
         
         complete_inv_response = scipy.interpolate.PchipInterpolator(vals, regular_inv_response, extrapolate=False)(np.arange(np.iinfo(grey.dtype).max+1))
-        complete_response = scipy.interpolate.PchipInterpolator(regular_inv_response, vals, extrapolate=False) #evaluer avec complete_response(x)
-        
-        complete_response = complete_response(np.linspace(0, 1, 1000))
+        complete_response = scipy.interpolate.PchipInterpolator(regular_inv_response, vals, extrapolate=False)(np.linspace(0, 1, 1000))
         
         return E, complete_inv_response, complete_response
