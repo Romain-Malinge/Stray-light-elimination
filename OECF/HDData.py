@@ -173,21 +173,22 @@ class HDData:
             responses = np.power(np.linspace(0, 1, 1000), np.linspace(0.5, 1.5, 100)[:,None])
             for base_name in self.bases:
                 print(f"Calcul de la réponse avec la base {base_name}...")
-                E, complete_inv_response, complete_response = solver.get_response_params(Z, B, responses, base_name, n_params=10)
+                E, complete_inv_response, complete_response = solver.get_response_params(Z, B, responses, base_name)
                 response_dic[base_name] = complete_response
                 inv_response_dic[base_name] = complete_inv_response
         
         exposures_values = np.linspace(0, 1, 1000)
         pixel_values = np.arange(65536)
+        print(response_dic["Arctan"])
         
         # Configuration de la figure avec une taille adaptée pour deux graphiques
         plt.figure(figsize=(16, 6))
 
         # --- PREMIER GRAPHIQUE ---
         plt.subplot(1, 2, 1)
-        #plt.scatter((E[:, None] * B[None, :]).flatten(), Z.flatten(), marker='+')
+        plt.scatter((E[:, None] * B[None, :]).flatten(), Z.flatten(), marker='+')
         for base_name, complete_response in response_dic.items():
-            plt.plot(exposures_values, complete_response, linewidth=2)
+            plt.plot(exposures_values, complete_response, color='red',linewidth=2)
         plt.title(f"OECF - {'MATLAB' if self.use_matlab else 'Python'} ({self.__bit_per_sample} levels)")
         plt.xlabel("Log Exposure (E*dt)")
         plt.ylabel("Log Pixel Value (Z)")
@@ -197,9 +198,9 @@ class HDData:
 
         # --- SECOND GRAPHIQUE ---
         plt.subplot(1, 2, 2)
-        #plt.scatter(Z.flatten(), (E[:, None] * B[None, :]).flatten(), marker='+')
+        plt.scatter(Z.flatten(), (E[:, None] * B[None, :]).flatten(), marker='+')
         for base_name, complete_inv_response in inv_response_dic.items():
-            plt.plot(pixel_values, complete_inv_response, linewidth=2)
+            plt.plot(pixel_values, complete_inv_response, color='red', linewidth=2)
         plt.title(f"Inverse OECF - {'MATLAB' if self.use_matlab else 'Python'}")
         plt.xlabel("Log Pixel Value (Z)")
         plt.ylabel("Log Exposure (E*dt)")
@@ -212,7 +213,7 @@ class HDData:
         plt.show()
         
         # Traitement de photos
-        self.stock_functions("nikon_arctan_responses.npz", complete_inv_response, complete_response)
+        self.stock_functions("nikon_arctanv2_responses.npz", complete_inv_response, complete_response)
         # resinv, res = self.load_functions("nikon_arctan_responses.npz") 
         # with rawpy.imread("C:\\Users\\benja\\Documents\\3A\\Stray-light-elimination\\OECF\\SonyA6700(2)\\SHUTTERS00032.ARW") as raw:
         #     raw_data = raw.raw_image.copy()

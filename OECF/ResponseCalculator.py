@@ -215,7 +215,7 @@ class ResponseCalculator:
         base.append(np.ones_like(x_norm))
         return np.column_stack(base)
 
-    def get_response_params(self, grey, times, responses, base_chosed, n_params=10):
+    def get_response_params(self, grey, times, responses, base_chosed, n_params=4):
         """
         grey (Z) : ndarray, shape (n_pix, n_time)
         times (B) : ndarray, shape (n_time,)
@@ -236,7 +236,7 @@ class ResponseCalculator:
             case "Analyse en Composante Principales":
                 base = self.inv_acp(responses, n_params, vals)
             case "Spline":
-                base = self.base_bspline(n_params, vals, degree=1)
+                base = self.base_bspline(n_params, vals, degree=3)
             case "Polynomiale":
                 base = self.base_polynomiale(n_params, vals)
             case "Chebyshev":
@@ -260,7 +260,7 @@ class ResponseCalculator:
                 x = cvxpy.Variable(n_pix + base.shape[1])
         
         objective = cvxpy.Minimize(cvxpy.sum_squares(A @ B @ x))
-        constraints = [Dx @ S @ B @ x >= 0.0, x[-1] == 1]
+        constraints = [Dx @ S @ B @ x >= 0.0, (S @ B @ x)[-1] == 1]
         prob = cvxpy.Problem(objective, constraints)
         prob.solve(solver=cvxpy.OSQP, verbose=False)
         E, inv_response = x.value[:n_pix], S @ B @ x.value
