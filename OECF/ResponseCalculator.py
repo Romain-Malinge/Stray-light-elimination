@@ -7,7 +7,7 @@ from scipy.sparse.linalg import lsqr
 
 from scipy.interpolate import BSpline
 
-BASES = ["Analyse en Composante Principales", "Polynomiale", "Chebyshev", "Lagrange", "Spline"]
+BASES = ["Analyse en Composante Principales", "Polynomiale", "Chebyshev", "Lagrange", "Spline", "Arctan", "Naka-Rushton"]
 
 # Import MATLAB if possible
 try:
@@ -182,6 +182,38 @@ class ResponseCalculator:
             base[:, i] = spline(x)
 
         return base
+    
+    def base_arctan(self, n_params, vals):
+        # Normalisation de vals entre -1 et 1 pour centrer l'arctan
+        v_min, v_max = np.min(vals), np.max(vals)
+        x_norm = 2 * (vals - v_min) / (v_max - v_min) - 1
+        
+        base = []
+        # On génère des fonctions arctan avec différentes raideurs (étalements)
+        scales = np.logspace(-1, 1, n_params) 
+        
+        for s in scales:
+            # arctan(x / s) donne une courbe en S plus ou moins abrupte
+            base.append(np.arctan(x_norm / s))
+        
+        # On ajoute une colonne de 1 pour l'offset (biais)
+        base.append(np.ones_like(x_norm))
+        
+        return np.column_stack(base)
+    
+    def base_naka_rushton(self, n_params, vals):
+        x_norm = (vals - np.min(vals)) / (np.max(vals) - np.min(vals) + 1e-6)
+        
+        base = []
+        # On fait varier sigma pour déplacer le centre du "S"
+        sigmas = np.linspace(0.1, 0.9, n_params)
+        n = 2.0 # Exposant typique pour une courbe en S douce
+        
+        for s in sigmas:
+            base.append(x_norm**n / (x_norm**n + s**n))
+            
+        base.append(np.ones_like(x_norm))
+        return np.column_stack(base)
 
     def get_response_params(self, grey, times, responses, base_chosed, n_params=10):
         """
@@ -197,10 +229,14 @@ class ResponseCalculator:
         n_vals = np.shape(vals)[-1]
         
         match base_chosed:
+            case "Arctan":
+                base = self.base_arctan(n_params, vals)
+            case "Naka-Rushton":
+                base = self.base_naka_rushton(n_params, vals)
             case "Analyse en Composante Principales":
                 base = self.inv_acp(responses, n_params, vals)
             case "Spline":
-                base = self.base_bspline(n_params, vals, degree=3)
+                base = self.base_bspline(n_params, vals, degree=1)
             case "Polynomiale":
                 base = self.base_polynomiale(n_params, vals)
             case "Chebyshev":

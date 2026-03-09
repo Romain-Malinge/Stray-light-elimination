@@ -212,8 +212,8 @@ class HDData:
         plt.show()
         
         # Traitement de photos
-        # self.stock_functions("nikon_responses.npz", complete_inv_response, complete_response)
-        # resinv, res = self.load_functions("sonya6700_responses.npz") 
+        self.stock_functions("nikon_arctan_responses.npz", complete_inv_response, complete_response)
+        # resinv, res = self.load_functions("nikon_arctan_responses.npz") 
         # with rawpy.imread("C:\\Users\\benja\\Documents\\3A\\Stray-light-elimination\\OECF\\SonyA6700(2)\\SHUTTERS00032.ARW") as raw:
         #     raw_data = raw.raw_image.copy()
         #     imageio.imsave('raw_ref.tiff', raw_data.astype(np.uint16))
