@@ -1,2 +1,1 @@
-# Stray-light-elimination
-Elimination of stray light using a neural network.
+# Stray-light-elimination for Photometric stereo pipeline
