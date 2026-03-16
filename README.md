@@ -1,1 +1,1 @@
-# Stray-light-elimination for Photometric stereo pipeline
+# Stray light elimination for Photometric Stereo pipeline
